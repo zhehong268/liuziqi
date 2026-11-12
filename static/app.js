@@ -79,6 +79,7 @@ function renderAnalysis(result) {
   const practice = (analysis.nextPractice || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
   analysisElement.innerHTML = `
     <h3>Agent 总结</h3><p>${escapeHtml(analysis.summary || "暂无总结")}</p>
+    <p class="analysis-provider">分析方式：${escapeHtml(analysis.provider === "openai" ? "大模型" : "本地规则")}</p>
     <h3>关键问题</h3><ul>${mistakes || "<li>没有返回关键问题</li>"}</ul>
     <h3>做得好的地方</h3><ul>${strengths || "<li>没有返回优点</li>"}</ul>
     <h3>下一步练习</h3><ul>${practice || "<li>没有返回练习建议</li>"}</ul>`;
