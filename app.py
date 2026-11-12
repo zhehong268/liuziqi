@@ -317,6 +317,33 @@ def export_game(game_id: str):
         return response
 
 
+@app.post("/api/games/<game_id>/analysis")
+def analyze_game_route(game_id: str):
+    with get_db() as db:
+        game = get_game(db, game_id)
+        if game is None:
+            return jsonify({"error": "game not found"}), 404
+        moves = get_moves(db, game_id)
+        move_payload = [
+            {
+                "moveNo": move["move_no"],
+                "player": move["player"],
+                "row": move["row"],
+                "col": move["col"],
+            }
+            for move in moves
+        ]
+        try:
+            from agent import analyze_game
+
+            analysis = analyze_game(move_payload, game["winner"])
+        except (RuntimeError, ValueError) as error:
+            return jsonify({"error": str(error)}), 503
+        except Exception as error:  # keep provider errors out of the browser stack trace
+            return jsonify({"error": f"AI provider request failed: {error}"}), 502
+        return jsonify({"gameId": game_id, "analysis": analysis})
+
+
 if __name__ == "__main__":
     init_db()
     app.run(debug=True, port=5000)

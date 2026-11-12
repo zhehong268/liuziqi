@@ -54,6 +54,10 @@ dd { margin: 0; font-weight: 600; text-align: right; word-break: break-all; }
 .legend span { display: flex; align-items: center; gap: 9px; }
 .legend .stone { position: static; display: inline-block; width: 16px; height: 16px; transform: none; }
 .message { min-height: 52px; color: #cbd6ef; line-height: 1.6; }
+.analysis { margin-top: 18px; border-top: 1px solid rgba(157, 169, 198, .12); padding-top: 16px; color: var(--muted); line-height: 1.55; }
+.analysis h3 { color: var(--text); font-size: 15px; margin: 0 0 8px; }
+.analysis ul { padding-left: 20px; }
+.analysis li { margin: 6px 0; }
 .lesson-note { margin-top: 22px; }
 .lesson-note li { margin: 10px 0; color: var(--muted); line-height: 1.6; }
 
