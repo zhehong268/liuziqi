@@ -15,6 +15,16 @@ function playerName(player) {
   return player === "black" ? "黑方" : player === "white" ? "白方" : "-";
 }
 
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>\"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#39;",
+  }[character]));
+}
+
 function setMessage(message) {
   messageElement.textContent = message;
 }
@@ -63,12 +73,12 @@ function renderState() {
 function renderAnalysis(result) {
   const analysis = result.analysis || {};
   const mistakes = (analysis.keyMistakes || [])
-    .map((item) => `<li>第 ${item.moveNo ?? "?"} 手：${item.reason || "未提供原因"}。${item.suggestion || ""}</li>`)
+    .map((item) => `<li>第 ${escapeHtml(item.moveNo ?? "?")} 手：${escapeHtml(item.reason || "未提供原因")}。${escapeHtml(item.suggestion || "")}</li>`)
     .join("");
-  const strengths = (analysis.strengths || []).map((item) => `<li>${item}</li>`).join("");
-  const practice = (analysis.nextPractice || []).map((item) => `<li>${item}</li>`).join("");
+  const strengths = (analysis.strengths || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+  const practice = (analysis.nextPractice || []).map((item) => `<li>${escapeHtml(item)}</li>`).join("");
   analysisElement.innerHTML = `
-    <h3>Agent 总结</h3><p>${analysis.summary || "暂无总结"}</p>
+    <h3>Agent 总结</h3><p>${escapeHtml(analysis.summary || "暂无总结")}</p>
     <h3>关键问题</h3><ul>${mistakes || "<li>没有返回关键问题</li>"}</ul>
     <h3>做得好的地方</h3><ul>${strengths || "<li>没有返回优点</li>"}</ul>
     <h3>下一步练习</h3><ul>${practice || "<li>没有返回练习建议</li>"}</ul>`;
