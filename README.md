@@ -44,7 +44,7 @@ GET  /api/games/<id>/export           下载文本棋谱
 
 ## Git 迭代
 
-当前本地仓库已经有两个提交。每次完成一个可验证的小功能就提交一次，推送到 GitHub 前再添加远程地址：
+当前本地仓库已经有连续的功能、文档和安全修复提交。每次完成一个可验证的小功能就提交一次，推送到 GitHub 前再添加远程地址：
 
 ```powershell
 git remote add origin https://github.com/<你的用户名>/connect6-agent-demo.git
