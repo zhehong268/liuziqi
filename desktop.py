@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import traceback
 import webbrowser
 
 
@@ -24,22 +25,22 @@ def self_test(report: Path) -> int:
             from paths import RESOURCE_DIR
             from waitress.server import create_server
             client = app.test_client()
-            assert client.get("/api/health").json["ok"]
-            assert client.get("/").status_code == 200
-            assert client.get("/static/ink-grid.svg").status_code == 200
+            assert client.get("/api/health").json["ok"], "health"
+            assert client.get("/").status_code == 200, "index"
+            assert client.get("/static/ink-grid.svg").status_code == 200, "board asset"
             example = client.get("/api/arena/example")
-            assert example.status_code == 200 and b"arena.v1" in example.data
+            assert example.status_code == 200 and b"arena.v1" in example.data, "example download"
             example.close()
             digest = hashlib.sha256((RESOURCE_DIR / "official" / "main.cpp").read_bytes()).hexdigest()
-            assert digest == "563a56aee9bf7a40d82fa2e80fdaefc008b0405cdb3c816ede723079fd681135"
-            assert (RESOURCE_DIR / "sandbox" / "Dockerfile").is_file()
+            assert digest == "563a56aee9bf7a40d82fa2e80fdaefc008b0405cdb3c816ede723079fd681135", "official source"
+            assert (RESOURCE_DIR / "sandbox" / "Dockerfile").is_file(), "sandbox resources"
             created = client.post("/api/games", json={"opponent": "local", "humanColor": "white"})
-            assert created.status_code == 201
+            assert created.status_code == 201, "new practice"
             game_id = created.json["id"]
             opening = client.post("/api/games/" + game_id + "/ai-turn").json
-            assert len(opening["moves"]) == 1 and opening["currentPlayer"] == "white"
-            assert client.get("/api/games/" + game_id + "/export?format=json").status_code == 200
-            assert DB_PATH.parent == Path(directory) and DB_PATH.is_file()
+            assert len(opening["moves"]) == 1 and opening["currentPlayer"] == "white", "white opening"
+            assert client.get("/api/games/" + game_id + "/export?format=json").status_code == 200, "export"
+            assert DB_PATH.parent == Path(directory).resolve() and DB_PATH.is_file(), "temporary database"
             from urllib.request import ProxyHandler, build_opener
             server = create_server(app, host="127.0.0.1", port=0)
             thread = threading.Thread(target=server.run, daemon=True)
@@ -48,7 +49,7 @@ def self_test(report: Path) -> int:
                 with build_opener(ProxyHandler({})).open(
                     f"http://127.0.0.1:{server.effective_port}/api/health", timeout=5
                 ) as response:
-                    assert json.load(response)["ok"]
+                    assert json.load(response)["ok"], "HTTP service"
             finally:
                 server.close()
                 thread.join(5)
@@ -58,6 +59,7 @@ def self_test(report: Path) -> int:
                       "staticAssets": True, "database": True, "export": True, "http": True}
     except Exception as error:
         result["error"] = f"{type(error).__name__}: {error}"
+        result["traceback"] = traceback.format_exc()
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     return 0 if result["ok"] else 1

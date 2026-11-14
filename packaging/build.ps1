@@ -1,4 +1,4 @@
-param([string]$Version = "0.4.1")
+param([string]$Version = "0.4.2")
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)
 python -m PyInstaller --noconfirm --clean --onedir --windowed --name MoYi --specpath build --workpath build/pyinstaller --add-data "$PWD/static:static" --add-data "$PWD/official:official" --add-data "$PWD/sandbox:sandbox" --add-data "$PWD/bot.py:." --add-data "$PWD/.env.example:." desktop.py

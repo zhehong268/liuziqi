@@ -37,7 +37,7 @@
 
 ```powershell
 python -m pip install -r requirements.txt pyinstaller==6.22.3
-.\packaging\build.ps1 -Version 0.4.1
+.\packaging\build.ps1 -Version 0.4.2
 ```
 
 脚本先生成程序，再用独立的临时数据库检查 HTTP 服务、练习、棋谱导出和官方源码，检查通过后才生成安装包。下载文件在 `dist/installer/`，同时生成 SHA256 校验文件。
