@@ -17,3 +17,6 @@ jobs:
         env:
           ARENA_DOCKER_TESTS: '1'
       - run: node --check static/app.js
+      - run: node --check web/browser-api.js
+      - run: node --test tests/browser.test.cjs
+      - run: python scripts/build_pages.py

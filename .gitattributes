@@ -4,4 +4,6 @@
 *.css text eol=lf
 *.html text eol=lf
 *.md text eol=lf
+*.ps1 text eol=crlf
+*.iss text eol=crlf
 official/main.cpp -text

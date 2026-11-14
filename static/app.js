@@ -1,7 +1,7 @@
 let gameState = null;
 let busy = true;
 let replayIndex = 0;
-let viewMode = "arena";
+let viewMode = window.connect6BrowserApi ? "practice" : "arena";
 let arenaInfo = null;
 let polling = false;
 let modelAvailable = false;
@@ -106,7 +106,10 @@ function renderState() {
     ? (gameState.arena ? names[gameState.currentPlayer] : gameState.currentPlayer === gameState.humanColor ? "轮到你" : "AI 思考中") + " · 余 " + gameState.remainingStones + " 子"
     : "";
   for (const [selector, format] of [["#export-game", "txt"], ["#export-json", "json"]]) {
-    $(selector).href = "/api/games/" + encodeURIComponent(gameState.id) + "/export?format=" + format;
+    $(selector).href = window.connect6BrowserApi
+      ? window.connect6BrowserApi.exportUrl(gameState, format)
+      : "/api/games/" + encodeURIComponent(gameState.id) + "/export?format=" + format;
+    $(selector).download = "connect6-" + gameState.id + "." + format;
     $(selector).classList.remove("disabled");
     $(selector).setAttribute("aria-disabled", "false");
   }
@@ -146,6 +149,7 @@ function setState(state, follow = true) {
   renderState();
 }
 async function api(path, options = {}) {
+  if (window.connect6BrowserApi) return window.connect6BrowserApi.request(path, options);
   const headers = options.body instanceof FormData ? {} : { "Content-Type": "application/json" };
   const response = await fetch(path, { ...options, headers });
   const data = await response.json().catch(() => ({ error: "服务器返回了异常响应，请检查后端。" }));
@@ -317,6 +321,7 @@ $("#replay-end").addEventListener("click", () => {
 });
 async function initialize() {
   try {
+    if (window.connect6BrowserApi) setMode("practice");
     const health = await api("/api/health");
     modelAvailable = health.modelConfigured;
     $("#opponent-field").hidden = !modelAvailable;

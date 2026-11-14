@@ -1,0 +1,43 @@
+name: Build Windows client
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements.txt pyinstaller==6.22.3
+      - name: Build and test installer
+        shell: pwsh
+        env:
+          BUILD_REF: ${{ github.ref_name }}
+        run: |
+          $version = if ($env:BUILD_REF -match '^v(\d+\.\d+\.\d+)$') { $Matches[1] } else { "0.4.0" }
+          ./packaging/build.ps1 -Version $version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MoYi-Windows-x64
+          path: dist/installer/*
+      - name: Publish download
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $assets = @(Get-ChildItem dist/installer -File | ForEach-Object FullName)
+          gh release view $env:RELEASE_TAG --json tagName 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:RELEASE_TAG @assets --clobber
+          } else {
+            gh release create $env:RELEASE_TAG @assets --verify-tag --title "墨弈 $env:RELEASE_TAG" --notes-file packaging/发布说明.md
+          }
+          if ($LASTEXITCODE -ne 0) { throw "发布下载文件失败" }

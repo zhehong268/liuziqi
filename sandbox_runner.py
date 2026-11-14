@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 from pathlib import Path
 import queue
@@ -11,8 +12,10 @@ import tempfile
 import threading
 import time
 import uuid
+from paths import DATA_DIR
 
 IMAGE = os.getenv("ARENA_IMAGE", "connect6-sandbox:1")
+INSTANCE = hashlib.sha256(os.path.normcase(str(DATA_DIR.resolve())).encode()).hexdigest()[:16]
 MOVE_SECONDS = 10.0
 MAX_LINE = 16 * 1024
 
@@ -52,6 +55,7 @@ def availability():
 def limits(name, *, compile_mode=False):
     return ["--name", name, "--rm", "--network", "none", "--read-only",
             "--label", "connect6-demo=arena",
+            "--label", "connect6-instance=" + INSTANCE,
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
             "--user", "65534:65534", "--cpus", "1", "--pids-limit", "64" if compile_mode else "1",
             "--memory", "512m", "--memory-swap", "512m", "--log-driver", "none",
@@ -69,7 +73,8 @@ def remove_container(name):
 def remove_stale_containers():
     """仅在唯一后端启动时清理本 Demo 崩溃遗留的容器。"""
     try:
-        result = docker("ps", "-aq", "--filter", "label=connect6-demo=arena", timeout=5)
+        result = docker("ps", "-aq", "--filter", "label=connect6-demo=arena",
+                        "--filter", "label=connect6-instance=" + INSTANCE, timeout=5)
         for container in result.stdout.splitlines():
             remove_container(container)
     except SandboxError:

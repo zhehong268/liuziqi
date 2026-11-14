@@ -7,8 +7,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from bot import BOARD_SIZE, DIRECTIONS, choose_ai_move, current_player, has_won, legal_cells
+from paths import ENV_PATH
 
-load_dotenv(Path(__file__).resolve().parent / ".env")
+load_dotenv(ENV_PATH)
 
 MOVE_SCHEMA = {"type": "object", "properties": {
     "row": {"type": "integer"}, "col": {"type": "integer"}, "reason": {"type": "string"}},

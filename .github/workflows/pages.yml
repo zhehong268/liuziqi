@@ -1,0 +1,32 @@
+name: Publish website
+on:
+  push:
+    branches: [main]
+    paths: ["static/**", "web/**", "scripts/build_pages.py", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: https://zhehong268.github.io/liuziqi/
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: node --test tests/browser.test.cjs
+      - run: python scripts/build_pages.py
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/pages
+      - uses: actions/deploy-pages@v4
+        id: deployment

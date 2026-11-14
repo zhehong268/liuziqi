@@ -12,10 +12,11 @@ from flask import Flask, jsonify, make_response, request, send_from_directory
 
 from bot import BOARD_SIZE, current_player, has_won, legal_cells, remaining_in_turn
 from agent import analyze_game, choose_agent_move, model_configured
+from paths import DATA_DIR, RESOURCE_DIR
 
-BASE_DIR = Path(__file__).resolve().parent
-DB_PATH = BASE_DIR / "data" / "connect6.db"
-app = Flask(__name__, static_folder="static")
+BASE_DIR = RESOURCE_DIR
+DB_PATH = DATA_DIR / "connect6.db"
+app = Flask(__name__, static_folder=str(RESOURCE_DIR / "static"))
 app.json.ensure_ascii = False
 app.config["MAX_CONTENT_LENGTH"] = 600 * 1024
 
@@ -333,7 +334,7 @@ register_routes(app, arena_service)
 if __name__ == "__main__":
     from sandbox_runner import remove_stale_containers
 
-    with server_guard(BASE_DIR / "data" / "arena" / "server.lock"):
+    with server_guard(DATA_DIR / "arena" / "server.lock"):
         remove_stale_containers()
         arena_service.recover()
         try:

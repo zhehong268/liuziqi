@@ -4,7 +4,19 @@
 
 “电子斗蛐蛐”任务 2 的六子棋 Web 应用。上传自己的 Python 或 C++ AI，挑战网站官方版，也可以自选先后手进行人机练习。对局有逐子记录、赛后复盘和棋谱导出。后端用 Flask 和 SQLite，前端是原生 JavaScript。
 
+[在线练习](https://zhehong268.github.io/liuziqi/) · [下载 Windows 客户端](https://github.com/zhehong268/liuziqi/releases/latest)
+
+网页版直接打开就能下棋，支持先后手选择、复盘和 TXT / JSON 棋谱导出，记录保存在当前浏览器。上传 Python / C++ AI 对战请下载客户端，在自己的电脑上运行。
+
 ![墨弈：水墨棋局与先后手选择](docs/images/arena.jpg)
+
+## Windows 客户端
+
+下载 Release 中的 `MoYi-Setup-Windows-x64.exe` 安装，或解压便携版后运行 `MoYi.exe`。程序会自动打开本机网页，不需要另装 Python，也不用填 API Key。
+
+上传 AI 前，先安装并启动 [Docker Desktop](https://www.docker.com/products/docker-desktop/)，使用 Linux 容器，再点启动窗口的“准备对战环境”。环境就绪后即可上传源码、选择先后手，挑战官方版。人机练习不需要 Docker。
+
+对局数据保存在 `%LOCALAPPDATA%\MoYi\data`，更新和卸载程序会保留这些记录。关闭启动窗口就会停止本机服务。具体步骤见 [Windows 客户端](docs/Windows客户端.md)。
 
 ## 运行
 
@@ -68,6 +80,10 @@ sandbox_runner.py      容器编译、协议通信和超时处理
 official/main.cpp      网站官方 AI 源码
 sandbox/               对战镜像和单线程启动器
 static/                HTML、CSS、JavaScript
+web/                   浏览器版棋规、AI 和 IndexedDB 存储
+desktop.py             Windows 启动窗口和打包自检
+packaging/             安装包和便携版构建脚本
+scripts/build_pages.py  生成 GitHub Pages 静态网站
 data/connect6.db        启动时生成的数据库
 tests/                 规则、API、裁判和真实容器测试
 docs/                  开发说明
@@ -97,6 +113,8 @@ $env:ARENA_DOCKER_TESTS = '1'
 ```
 
 前端改动还可以用 `node --check static/app.js` 检查语法。Node.js 只用于检查，启动应用不需要它。推送后会运行 GitHub Actions，结果在 [Actions](https://github.com/zhehong268/liuziqi/actions) 查看。
+
+浏览器版用 `node --test tests/browser.test.cjs` 检查棋规和复盘，再执行 `python scripts/build_pages.py`，产物在 `dist/pages/`。推送相关改动到 main 后自动发布网站；推送 `v*` 标签后自动构建、自检并发布 Windows 下载文件。
 
 ## 开发文档
 

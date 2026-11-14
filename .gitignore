@@ -10,3 +10,4 @@ data/*.sqlite*
 data/arena/
 .pytest_cache/
 dist/
+build/

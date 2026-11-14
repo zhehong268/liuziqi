@@ -14,9 +14,10 @@ from flask import jsonify, request, send_file
 
 from bot import current_player, remaining_in_turn
 from agent import local_analysis
+from paths import DATA_DIR, RESOURCE_DIR
 from sandbox_runner import BotFault, BotProcess, SandboxError, availability, prepare
 
-BASE = Path(__file__).resolve().parent
+BASE = RESOURCE_DIR
 OFFICIAL_SOURCE = BASE / "official" / "main.cpp"
 OFFICIAL_NAME = "官方 AI · C6 最终版"
 MAX_SOURCE = 512 * 1024
@@ -75,7 +76,7 @@ class ArenaService:
         self.payload = game_payload
         self.place_one = place_one
         self.now = now_iso
-        self.storage = Path(storage) if storage else BASE / "data" / "arena"
+        self.storage = Path(storage) if storage else DATA_DIR / "arena"
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="arena")
         self.lock = threading.Lock()
         self.pending = set()
