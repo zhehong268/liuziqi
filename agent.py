@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from bot import BOARD_SIZE, choose_ai_move, current_player, has_won, legal_cells, winning_cells
+from bot import BOARD_SIZE, DIRECTIONS, choose_ai_move, current_player, has_won, legal_cells
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
@@ -101,33 +101,52 @@ def choose_agent_move(board, player="white", opponent="local") -> dict:
             "reason": notice}
 
 
-def local_analysis(moves: list[dict], winner: str | None, status="active") -> dict:
-    """重建棋谱，检测黑方完整回合结束后的直接漏防，不把第一颗子的中间状态判成失误。"""
+def turn_winning_cells(board, player):
+    """找一个只差 1～2 子的六格窗口，不做多回合搜索。"""
+    for missing in (1, 2):
+        for dr, dc in DIRECTIONS:
+            for row in range(BOARD_SIZE):
+                for col in range(BOARD_SIZE):
+                    if not (0 <= row + 5 * dr < BOARD_SIZE and 0 <= col + 5 * dc < BOARD_SIZE):
+                        continue
+                    cells = [(row + i * dr, col + i * dc) for i in range(6)]
+                    values = [board[r][c] for r, c in cells]
+                    if values.count(player) == 6 - missing and values.count(None) == missing:
+                        return [(r, c) for r, c in cells if board[r][c] is None]
+    return []
+
+
+def local_analysis(moves: list[dict], winner: str | None, status="active", focus_player="black") -> dict:
+    """检测复盘方完整回合结束后的直接漏防。"""
     board = [[None] * BOARD_SIZE for _ in range(BOARD_SIZE)]
+    focus_name = "黑方" if focus_player == "black" else "白方"
+    enemy = "white" if focus_player == "black" else "black"
+    enemy_name = "白方" if enemy == "white" else "黑方"
     mistakes = []
     for index, move in enumerate(moves):
         row, col, player = move["row"], move["col"], move["player"]
         board[row][col] = player
-        if player != "black" or len(mistakes) >= 3 or has_won(board, row, col, player):
+        if player != focus_player or len(mistakes) >= 3 or has_won(board, row, col, player):
             continue
-        if current_player(index + 1) != "black":
-            threats = winning_cells(board, "white")
+        if current_player(index + 1) != focus_player:
+            threats = turn_winning_cells(board, enemy)
             if threats:
-                r, c = threats[0]
+                targets = "、".join(f"第 {r+1} 行第 {c+1} 列" for r, c in threats)
                 mistakes.append({"moveNo": move["moveNo"],
-                    "reason": f"黑方本回合结束时，白方可在第 {r+1} 行第 {c+1} 列直接连成六子。",
-                    "suggestion": "落完本回合两颗子前，检查四个方向，优先消除直接成六威胁。"})
+                    "reason": f"{focus_name}本回合结束时，{enemy_name}可用 {len(threats)} 颗子在{targets}连成六子。",
+                    "suggestion": "落完本回合两颗子前，检查对手四子、五子且未被挡住的六格连线，优先消除成六威胁。"})
         if index == 0 and abs(row - 9) + abs(col - 9) >= 14:
             mistakes.append({"moveNo": move["moveNo"], "reason": "首子靠近棋盘边角，可延伸的方向较少。",
                              "suggestion": "可以尝试从中心区域开局；这是布局建议，不代表此手必败。"})
-    result_text = {"black": "黑方获胜", "white": "白方获胜"}.get(winner, "和棋" if status == "draw" else "仍在进行")
-    return {"provider": "local-rules", "summary": f"本局 {len(moves)} 颗子，{result_text}。本地复盘重点检查黑方的直接漏防与开局位置。",
+    result_text = {"black": "黑方获胜", "white": "白方获胜"}.get(winner, "和棋" if status == "draw" else "已中断" if status == "aborted" else "仍在进行")
+    won_by_line = any(m["player"] == focus_player and has_won(board, m["row"], m["col"], focus_player) for m in moves)
+    return {"provider": "local-rules", "summary": f"本局 {len(moves)} 颗子，{result_text}。复盘检查{focus_name}完整回合后的单子、双子成六威胁。",
             "keyMistakes": mistakes[:3],
-            "strengths": (["黑方已完成六连或以上连线。"] if winner == "black" else
-                          ["尚未检测到完整回合结束后的直接漏防；这不代表没有其他战术问题。"] if moves and not mistakes else []),
-            "nextPractice": ["先找自己能直接成六的位置，再检查对手下一颗能成六的位置。",
+            "strengths": ([focus_name + "已完成六连或以上连线。"] if won_by_line else
+                          ["没有发现完整回合结束后的单子、双子成六威胁；其他战术还需结合棋谱检查。"] if moves and not mistakes else []),
+            "nextPractice": ["先找自己本回合能成六的位置，再检查对手用一颗或两颗子成六的连线。",
                              "把每回合两颗子作为一组规划；本版不搜索多回合战术。"],
-            "trace": ["读取已保存棋谱", f"重建 {len(moves)} 颗子的局面", "检查完整回合后的直接威胁", "生成结构化练习建议"]}
+            "trace": ["读取已保存棋谱", f"重建 {len(moves)} 颗子的局面", "检查完整回合后的单子、双子成六威胁", "生成结构化练习建议"]}
 
 
 def validate_analysis(result: dict, moves: list[dict]) -> None:
@@ -145,13 +164,13 @@ def validate_analysis(result: dict, moves: list[dict]) -> None:
             raise ValueError("问题格式无效")
 
 
-def analyze_game(moves: list[dict], winner: str | None, status="active") -> dict:
-    evidence = local_analysis(moves, winner, status)
+def analyze_game(moves: list[dict], winner: str | None, status="active", focus_player="black") -> dict:
+    evidence = local_analysis(moves, winner, status, focus_player)
     if not model_configured() or not moves:
         return evidence
     try:
         result = call_model_json(
-            "规则：19×19，黑方首回合一颗子，此后每回合两颗，六连或以上获胜。分析黑方的不足，最多三个关键问题；"
+            "规则：19×19，黑方首回合一颗子，此后每回合两颗，六连或以上获胜。分析" + ("黑方" if focus_player == "black" else "白方") + "的不足，最多三个关键问题；"
             "标出实际手数并给出可操作建议。局面未结束时不能宣称胜负。区分工具已验证的直接威胁与布局判断，"
             "不要把同一回合两颗子之间的状态当成最终漏防。\n" +
             json.dumps({"moves": moves, "status": status, "winner": winner, "toolEvidence": evidence}, ensure_ascii=False),

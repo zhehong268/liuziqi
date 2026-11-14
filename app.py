@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import sqlite3
 from contextlib import contextmanager
@@ -16,7 +17,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "data" / "connect6.db"
 app = Flask(__name__, static_folder="static")
 app.json.ensure_ascii = False
-app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 600 * 1024
 
 
 def now_iso() -> str:
@@ -61,12 +62,25 @@ def init_db() -> None:
                 PRIMARY KEY (game_id, move_count),
                 FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
             );
+            CREATE TABLE IF NOT EXISTS submissions (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, language TEXT NOT NULL,
+                sha256 TEXT NOT NULL, created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS arena_matches (
+                game_id TEXT PRIMARY KEY REFERENCES games(id),
+                submission_id TEXT NOT NULL REFERENCES submissions(id),
+                challenger_color TEXT NOT NULL, official_hash TEXT NOT NULL, official_name TEXT NOT NULL,
+                state TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '', loser TEXT,
+                failure_elapsed_ms INTEGER NOT NULL DEFAULT 0,
+                thinking_player TEXT, thinking_since TEXT, finished_at TEXT
+            );
         """)
         # 无损兼容旧版数据库，不删除已有棋局。
         for table, column, definition in (
             ("games", "opponent", "TEXT NOT NULL DEFAULT 'local'"),
             ("moves", "source", "TEXT NOT NULL DEFAULT 'unknown'"),
             ("moves", "reason", "TEXT NOT NULL DEFAULT ''"),
+            ("moves", "elapsed_ms", "INTEGER"),
         ):
             columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
             if column not in columns:
@@ -92,19 +106,31 @@ def game_payload(db, game):
     moves = get_moves(db, game["id"])
     analysis = db.execute("SELECT result_json FROM analyses WHERE game_id = ? AND move_count = ?",
                           (game["id"], len(moves))).fetchone()
+    arena = None
+    if game["opponent"] == "arena":
+        row = db.execute("SELECT a.*,s.name AS challenger_name FROM arena_matches a "
+                         "JOIN submissions s ON s.id=a.submission_id WHERE a.game_id=?", (game["id"],)).fetchone()
+        if row:
+            arena = {"state": row["state"], "reason": row["reason"], "loser": row["loser"],
+                     "challengerName": row["challenger_name"], "challengerColor": row["challenger_color"],
+                     "officialName": row["official_name"], "officialHash": row["official_hash"],
+                     "submissionId": row["submission_id"], "thinkingPlayer": row["thinking_player"],
+                     "thinkingSince": row["thinking_since"], "failureElapsedMs": row["failure_elapsed_ms"],
+                     "timeLimitMs": 10000, "threads": 1}
     return {
         "id": game["id"], "status": game["status"], "winner": game["winner"],
-        "opponent": game["opponent"], "createdAt": game["created_at"],
+        "opponent": game["opponent"], "createdAt": game["created_at"], "arena": arena,
         "currentPlayer": current_player(len(moves)) if game["status"] == "active" else None,
         "remainingStones": remaining_in_turn(len(moves)) if game["status"] == "active" else 0,
         "board": board_from_moves(moves),
         "moves": [{"moveNo": m["move_no"], "player": m["player"], "row": m["row"],
-                   "col": m["col"], "source": m["source"], "reason": m["reason"]} for m in moves],
+                   "col": m["col"], "source": m["source"], "reason": m["reason"],
+                   "elapsedMs": m["elapsed_ms"]} for m in moves],
         "analysis": json.loads(analysis["result_json"]) if analysis else None,
     }
 
 
-def place_one(db, game_id, row, col, player, source="human", reason=""):
+def place_one(db, game_id, row, col, player, source="human", reason="", elapsed_ms=None):
     game = get_game(db, game_id)
     if game is None:
         raise LookupError("找不到棋局")
@@ -118,9 +144,9 @@ def place_one(db, game_id, row, col, player, source="human", reason=""):
     board = board_from_moves(moves)
     if board[row][col] is not None:
         raise ValueError("这里已经有棋子了")
-    db.execute("""INSERT INTO moves (game_id, move_no, player, row, col, created_at, source, reason)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-               (game_id, len(moves) + 1, player, row, col, now_iso(), source, reason))
+    db.execute("""INSERT INTO moves (game_id, move_no, player, row, col, created_at, source, reason, elapsed_ms)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (game_id, len(moves) + 1, player, row, col, now_iso(), source, reason, elapsed_ms))
     board[row][col] = player
     if has_won(board, row, col, player):
         db.execute("UPDATE games SET status = 'finished', winner = ? WHERE id = ?", (player, game_id))
@@ -131,6 +157,11 @@ def place_one(db, game_id, row, col, player, source="human", reason=""):
 @app.get("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
+
+
+@app.errorhandler(413)
+def upload_too_large(error):
+    return jsonify({"error": "文件过大，源码不能超过 512 KB"}), 413
 
 
 @app.get("/api/health")
@@ -181,6 +212,9 @@ def create_move(game_id):
         return jsonify({"error": "请提供整数 row、col"}), 400
     with get_db() as db:
         db.execute("BEGIN IMMEDIATE")
+        game = get_game(db, game_id)
+        if game is not None and game["opponent"] == "arena":
+            return jsonify({"error": "挑战对局由裁判落子，不能手动修改"}), 409
         try:
             place_one(db, game_id, data["row"], data["col"], "black")
         except LookupError as error:
@@ -196,6 +230,8 @@ def create_ai_turn(game_id):
         game = get_game(db, game_id)
         if game is None:
             return jsonify({"error": "找不到棋局"}), 404
+        if game["opponent"] == "arena":
+            return jsonify({"error": "挑战对局由后台裁判运行"}), 409
         snapshot = game_payload(db, game)
     if snapshot["status"] != "active":
         return jsonify(snapshot)
@@ -230,7 +266,13 @@ def analyze_game_route(game_id):
             return jsonify({"error": "找不到棋局"}), 404
         snapshot = game_payload(db, game)
     # 同一棋谱复用已保存结果，刷新不反复调用收费 API。
-    analysis = snapshot["analysis"] or analyze_game(snapshot["moves"], snapshot["winner"], snapshot["status"])
+    if snapshot["arena"] and snapshot["arena"]["state"] not in ("finished", "aborted"):
+        return jsonify({"error": "挑战结束后会自动生成复盘"}), 409
+    if snapshot["arena"]:
+        analysis = snapshot["analysis"] or analyze_game(snapshot["moves"], snapshot["winner"], snapshot["status"],
+                                                       focus_player=snapshot["arena"]["challengerColor"])
+    else:
+        analysis = snapshot["analysis"] or analyze_game(snapshot["moves"], snapshot["winner"], snapshot["status"])
     with get_db() as db:
         db.execute("""INSERT INTO analyses (game_id, move_count, result_json, created_at) VALUES (?, ?, ?, ?)
                       ON CONFLICT(game_id, move_count) DO UPDATE SET result_json = excluded.result_json,
@@ -258,7 +300,13 @@ def export_game(game_id):
                  f"Result: {payload['status']} / {payload['winner'] or '-'}",
                  "Rule: 19x19, black first 1 stone, then 2 stones per turn, >=6 wins.",
                  "Coordinates: (row, col), 1-based.", ""]
+        if payload["arena"]:
+            match = payload["arena"]
+            lines += [f"Challenger: {match['challengerName']} ({match['challengerColor']})",
+                      f"Official: {match['officialName']} / {match['officialHash']}",
+                      "Limits: 10000 ms per stone / 1 thread", f"Reason: {match['reason']}", ""]
         lines += [f"{m['moveNo']:03d}. {m['player']:5s} ({m['row'] + 1},{m['col'] + 1})"
+                  + (f" [{m['elapsedMs']} ms]" if m['elapsedMs'] is not None else "")
                   for m in payload["moves"]]
         content, mime = "\n".join(lines) + "\n", "text/plain"
     response = make_response(content)
@@ -269,5 +317,18 @@ def export_game(game_id):
 
 init_db()
 
+from arena import ArenaService, register_routes, server_guard
+
+arena_service = ArenaService(get_db, get_game, game_payload, place_one, now_iso)
+register_routes(app, arena_service)
+
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    from sandbox_runner import remove_stale_containers
+
+    with server_guard(BASE_DIR / "data" / "arena" / "server.lock"):
+        remove_stale_containers()
+        arena_service.recover()
+        try:
+            app.run(host=os.getenv("APP_HOST", "127.0.0.1"), port=int(os.getenv("APP_PORT", "5000")), debug=False)
+        finally:
+            arena_service.shutdown()

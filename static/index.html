@@ -4,23 +4,46 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#1c5148" />
-  <title>六子棋 · Agent 对弈室</title>
+  <title>六子棋 · AI 挑战台</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
   <main class="page-shell">
     <header class="hero">
-      <div><p class="eyebrow">CONNECT6 / 电子斗蛐蛐</p><h1>六子棋<span>对弈室</span></h1>
-        <p class="subtitle">落子、交锋，再和你的 Agent 一起复盘。</p></div>
-      <div class="version">初版 DEMO <span>01</span></div>
+      <div><p class="eyebrow">CONNECT6 / 电子斗蛐蛐</p><h1>六子棋<span>AI 挑战台</span></h1>
+        <p class="subtitle">提交你的 AI，与官方版交手。棋谱、耗时和复盘都留在这里。</p></div>
+      <div class="version">AI ARENA <span>02</span></div>
     </header>
+    <nav class="mode-tabs" aria-label="对战模式">
+      <button id="mode-arena" class="selected" aria-pressed="true">AI 挑战</button>
+      <button id="mode-practice" aria-pressed="false">人机练习</button>
+    </nav>
+    <section id="arena-panel" class="arena-panel" aria-label="上传 AI 挑战官方版">
+      <div class="arena-heading"><div><h2>挑战官方 AI</h2><p id="arena-readiness" class="card-note">正在连接对战裁判…</p></div>
+        <div class="limit-tags"><span>每颗子 10 秒</span><span>单线程</span><span>Python / C++17</span></div></div>
+      <div class="arena-forms">
+        <form id="upload-form">
+          <label for="ai-name">你的 AI 名称</label><input id="ai-name" name="name" maxlength="40" placeholder="例如：六子棋第一版" />
+          <label for="ai-file">单文件源码 · 最大 512 KB</label><input id="ai-file" name="file" type="file" accept=".py,.cpp" required />
+          <div class="upload-actions"><button id="upload-ai" class="secondary" type="submit">上传 AI</button><a href="/api/arena/example">下载 Python 示例</a></div>
+        </form>
+        <div class="challenge-controls">
+          <label for="submission">选择已上传的 AI</label><select id="submission"><option value="">请先上传源码</option></select>
+          <label for="challenger-color">挑战方执子</label><select id="challenger-color"><option value="black">黑方 · 先手</option><option value="white">白方 · 后手</option></select>
+          <button id="start-match" class="primary" disabled>开始挑战</button>
+        </div>
+      </div>
+      <p id="upload-message" class="card-note" role="status" aria-live="polite">使用 arena.v1 标准输入输出协议，无需 API Key。每次返回一颗子；超时、崩溃或非法落子判负。</p>
+    </section>
     <section class="toolbar" aria-label="对局操作">
-      <div class="start-controls">
+      <div id="practice-controls" class="start-controls" hidden>
         <label for="opponent">对手</label>
         <select id="opponent"><option value="local">我的规则 AI · 离线</option><option value="model" disabled>大模型 AI · 需配置</option></select>
         <button id="new-game" class="primary" disabled>新建棋局</button>
       </div>
+      <div id="arena-live" class="arena-live" role="status" aria-live="polite">上传代码后即可发起挑战</div>
       <div class="export-controls">
+        <button id="stop-match" class="quiet" hidden>停止本局</button>
         <a id="export-game" class="button-link disabled" href="#" aria-disabled="true">导出 TXT</a>
         <a id="export-json" class="button-link disabled" href="#" aria-disabled="true">导出 JSON</a>
       </div>
@@ -29,7 +52,7 @@
       <div class="board-card">
         <div class="game-meta"><span id="game-status" class="status">正在连接…</span><span id="turn-status"></span></div>
         <div id="board" class="board" role="group" aria-label="19乘19六子棋棋盘"></div>
-        <div class="board-caption"><span><i class="legend-stone black"></i>你执黑</span><span><i class="legend-stone white"></i>AI 执白</span><span>黑方首回合 1 子 · 随后每回合 2 子 · 六连胜</span></div>
+        <div class="board-caption"><span><i class="legend-stone black"></i><span id="black-label">黑方</span></span><span><i class="legend-stone white"></i><span id="white-label">白方</span></span><span>黑方首回合 1 子 · 随后每回合 2 子 · 六连胜</span></div>
         <div class="replay">
           <label for="replay-slider">棋谱回放 <strong id="replay-label">0 / 0</strong></label>
           <input id="replay-slider" type="range" min="0" max="0" value="0" disabled />
@@ -45,6 +68,7 @@
           <p id="message" class="message" role="status" aria-live="polite">正在初始化棋盘…</p>
           <button id="retry-ai" class="secondary" hidden>继续 AI 回合</button>
           <div id="ai-decision" class="decision" hidden></div>
+          <div id="move-times" class="move-times" hidden></div>
         </section>
         <section class="side-card agent-card">
           <div class="section-title"><h2>Agent 复盘</h2><span class="agent-dot" aria-hidden="true"></span></div>
@@ -59,7 +83,7 @@
         </section>
       </aside>
     </section>
-    <footer><span>六子棋 Agent Demo · Flask + SQLite</span><a href="http://139.196.148.174/connect6" target="_blank" rel="noreferrer">平台六子棋规则 ↗</a></footer>
+    <footer><span>六子棋 AI 挑战台 · Flask + SQLite + Docker</span><a href="http://139.196.148.174/connect6" target="_blank" rel="noreferrer">平台六子棋规则 ↗</a></footer>
   </main>
   <script src="/static/app.js" defer></script>
 </body>
