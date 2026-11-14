@@ -1,6 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const E = require("../web/engine.js");
+const fs = require("node:fs");
+const vm = require("node:vm");
 const game = () => ({ board: E.emptyBoard(), moves: [], status: "active", winner: null, humanColor: "black" });
 test("黑先一颗，此后每回合两颗", () => {
   assert.deepEqual(Array.from({ length: 7 }, (_, i) => E.currentPlayer(i)), ["black", "white", "white", "black", "black", "white", "white"]);
@@ -44,4 +46,21 @@ test("复盘检查完整回合，允许同一回合第二颗完成防守", () =>
   assert.ok(!analysis.keyMistakes.some((m) => m.moveNo === 8 || m.moveNo === 9));
   moves[8] = { player: "black", row: 0, col: 4, moveNo: 9 };
   assert.ok(E.analyze({ moves, humanColor: "black", winner: null, status: "active" }).keyMistakes.some((m) => m.moveNo === 9));
+});
+test("JSON 棋谱在分析完成后更新，重复渲染复用下载链接", async () => {
+  const blobs = new Map(), revoked = [];
+  const context = { window: { Connect6Engine: E }, indexedDB: { open: () => ({}) }, Blob,
+    URL: { createObjectURL: (blob) => { const url = "blob:" + blobs.size; blobs.set(url, blob); return url; },
+      revokeObjectURL: (url) => revoked.push(url) } };
+  vm.runInNewContext(fs.readFileSync(require.resolve("../web/browser-api.js"), "utf8"), context);
+  const api = context.window.connect6BrowserApi;
+  const g = { ...game(), id: "export-check", analysis: null };
+  const before = api.exportUrl(g, "json");
+  assert.equal(JSON.parse(await blobs.get(before).text()).analysis, null);
+  g.analysis = E.analyze(g);
+  const after = api.exportUrl(g, "json");
+  assert.notEqual(after, before);
+  assert.deepEqual(JSON.parse(await blobs.get(after).text()).analysis, g.analysis);
+  assert.deepEqual(revoked, [before]);
+  assert.equal(api.exportUrl(g, "json"), after);
 });

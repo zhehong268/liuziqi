@@ -86,7 +86,7 @@
   }
   const exports = new Map();
   function exportUrl(game, format) {
-    const key = game.id + ":" + game.moves.length + ":" + game.status + ":" + format;
+    const key = JSON.stringify([game.id, game.moves.length, game.status, game.analysis, format]);
     const cached = exports.get(format);
     if (cached?.key === key) return cached.url;
     if (cached) URL.revokeObjectURL(cached.url);
