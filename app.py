@@ -78,6 +78,7 @@ def init_db() -> None:
         # 无损兼容旧版数据库，不删除已有棋局。
         for table, column, definition in (
             ("games", "opponent", "TEXT NOT NULL DEFAULT 'local'"),
+            ("games", "human_color", "TEXT NOT NULL DEFAULT 'black'"),
             ("moves", "source", "TEXT NOT NULL DEFAULT 'unknown'"),
             ("moves", "reason", "TEXT NOT NULL DEFAULT ''"),
             ("moves", "elapsed_ms", "INTEGER"),
@@ -120,6 +121,8 @@ def game_payload(db, game):
     return {
         "id": game["id"], "status": game["status"], "winner": game["winner"],
         "opponent": game["opponent"], "createdAt": game["created_at"], "arena": arena,
+        "humanColor": game["human_color"] if not arena else None,
+        "aiColor": ("white" if game["human_color"] == "black" else "black") if not arena else None,
         "currentPlayer": current_player(len(moves)) if game["status"] == "active" else None,
         "remainingStones": remaining_in_turn(len(moves)) if game["status"] == "active" else 0,
         "board": board_from_moves(moves),
@@ -176,6 +179,7 @@ def list_games():
                              FROM games g ORDER BY created_at DESC LIMIT 50""").fetchall()
         return jsonify({"games": [{"id": g["id"], "status": g["status"], "winner": g["winner"],
                                    "opponent": g["opponent"], "createdAt": g["created_at"],
+                                   "humanColor": g["human_color"] if g["opponent"] != "arena" else None,
                                    "moveCount": g["move_count"]} for g in rows]})
 
 
@@ -187,12 +191,15 @@ def create_game():
     if not isinstance(data, dict) or data.get("opponent", "local") not in ("local", "model"):
         return jsonify({"error": "opponent 只能是 local 或 model"}), 400
     opponent = data.get("opponent", "local")
+    human_color = data.get("humanColor", "black")
+    if human_color not in ("black", "white"):
+        return jsonify({"error": "humanColor 只能是 black 或 white"}), 400
     if opponent == "model" and not model_configured():
         return jsonify({"error": "请先在 .env 配置 API Key 和模型名，再重启后端"}), 400
     game_id = secrets.token_urlsafe(8)
     with get_db() as db:
-        db.execute("INSERT INTO games (id, status, created_at, opponent) VALUES (?, 'active', ?, ?)",
-                   (game_id, now_iso(), opponent))
+        db.execute("INSERT INTO games (id, status, created_at, opponent, human_color) VALUES (?, 'active', ?, ?, ?)",
+                   (game_id, now_iso(), opponent, human_color))
         return jsonify(game_payload(db, get_game(db, game_id))), 201
 
 
@@ -216,7 +223,7 @@ def create_move(game_id):
         if game is not None and game["opponent"] == "arena":
             return jsonify({"error": "挑战对局由裁判落子，不能手动修改"}), 409
         try:
-            place_one(db, game_id, data["row"], data["col"], "black")
+            place_one(db, game_id, data["row"], data["col"], game["human_color"] if game else "black")
         except LookupError as error:
             return jsonify({"error": str(error)}), 404
         except ValueError as error:
@@ -235,25 +242,26 @@ def create_ai_turn(game_id):
         snapshot = game_payload(db, game)
     if snapshot["status"] != "active":
         return jsonify(snapshot)
-    if snapshot["currentPlayer"] != "white":
-        return jsonify({"error": "当前不是白方 AI 的回合"}), 400
+    ai_color = snapshot["aiColor"]
+    if snapshot["currentPlayer"] != ai_color:
+        return jsonify({"error": "当前不是 AI 的回合"}), 400
 
     # 网络请求在数据库事务外完成，避免等待模型时锁住 SQLite。
     board = snapshot["board"]
     decisions = []
     for _ in range(snapshot["remainingStones"]):
-        decision = choose_agent_move(board, "white", snapshot["opponent"])
+        decision = choose_agent_move(board, ai_color, snapshot["opponent"])
         decisions.append(decision)
         row, col = decision["row"], decision["col"]
-        board[row][col] = "white"
-        if has_won(board, row, col, "white") or not legal_cells(board):
+        board[row][col] = ai_color
+        if has_won(board, row, col, ai_color) or not legal_cells(board):
             break
     with get_db() as db:
         db.execute("BEGIN IMMEDIATE")
         if len(get_moves(db, game_id)) != len(snapshot["moves"]):
             return jsonify({"error": "棋局已改变，请刷新后继续"}), 409
         for decision in decisions:
-            place_one(db, game_id, decision["row"], decision["col"], "white",
+            place_one(db, game_id, decision["row"], decision["col"], ai_color,
                       decision["source"], decision["reason"])
         return jsonify(game_payload(db, get_game(db, game_id)))
 
@@ -268,11 +276,9 @@ def analyze_game_route(game_id):
     # 同一棋谱复用已保存结果，刷新不反复调用收费 API。
     if snapshot["arena"] and snapshot["arena"]["state"] not in ("finished", "aborted"):
         return jsonify({"error": "挑战结束后会自动生成复盘"}), 409
-    if snapshot["arena"]:
-        analysis = snapshot["analysis"] or analyze_game(snapshot["moves"], snapshot["winner"], snapshot["status"],
-                                                       focus_player=snapshot["arena"]["challengerColor"])
-    else:
-        analysis = snapshot["analysis"] or analyze_game(snapshot["moves"], snapshot["winner"], snapshot["status"])
+    focus_player = snapshot["arena"]["challengerColor"] if snapshot["arena"] else snapshot["humanColor"]
+    analysis = snapshot["analysis"] or analyze_game(snapshot["moves"], snapshot["winner"], snapshot["status"],
+                                                   focus_player=focus_player)
     with get_db() as db:
         db.execute("""INSERT INTO analyses (game_id, move_count, result_json, created_at) VALUES (?, ?, ?, ?)
                       ON CONFLICT(game_id, move_count) DO UPDATE SET result_json = excluded.result_json,
@@ -305,6 +311,8 @@ def export_game(game_id):
             lines += [f"Challenger: {match['challengerName']} ({match['challengerColor']})",
                       f"Official: {match['officialName']} / {match['officialHash']}",
                       "Limits: 10000 ms per stone / 1 thread", f"Reason: {match['reason']}", ""]
+        else:
+            lines += [f"Human: {payload['humanColor']} / AI: {payload['aiColor']}", ""]
         lines += [f"{m['moveNo']:03d}. {m['player']:5s} ({m['row'] + 1},{m['col'] + 1})"
                   + (f" [{m['elapsedMs']} ms]" if m['elapsedMs'] is not None else "")
                   for m in payload["moves"]]

@@ -9,6 +9,13 @@ const boardElement = $("#board");
 const storageKey = "connect6.currentGame";
 const names = { black: "黑方", white: "白方" };
 const sources = { model: "大模型", local: "我的规则 AI", "local-fallback": "本地 AI 接管", official: "官方 AI", challenger: "挑战方 AI" };
+for (const selector of ["#column-coords", "#row-coords"]) {
+  for (let index = 1; index <= 19; index += 1) {
+    const label = document.createElement("span");
+    label.textContent = index;
+    $(selector).append(label);
+  }
+}
 
 function savedGameId() {
   try { return localStorage.getItem(storageKey); } catch { return null; }
@@ -41,7 +48,7 @@ function renderBoard() {
       cell.dataset.row = row; cell.dataset.col = col;
       cell.title = "第 " + (row + 1) + " 行，第 " + (col + 1) + " 列";
       cell.setAttribute("aria-label", cell.title + "，" + (move ? names[move.player] : "空位"));
-      cell.disabled = busy || !gameState || !!move || isReplaying() || !!gameState.arena || gameState.status !== "active" || gameState.currentPlayer !== "black";
+      cell.disabled = busy || !gameState || !!move || isReplaying() || !!gameState.arena || gameState.status !== "active" || gameState.currentPlayer !== gameState.humanColor;
       if (move) {
         const stone = document.createElement("i");
         stone.className = "stone " + move.player + (move === last ? " last" : "");
@@ -71,6 +78,8 @@ function renderAnalysis(analysis) {
 function renderState() {
   $("#new-game").disabled = busy;
   $("#opponent").disabled = busy;
+  for (const input of document.querySelectorAll('[name="human-color"]')) input.disabled = busy;
+  for (const selector of ["#mode-arena", "#mode-practice"]) $(selector).disabled = busy;
   $("#history").disabled = busy;
   $("#analyze-game").disabled = busy || !gameState?.moves.length || isReplaying() || (!!gameState?.arena && !["finished", "aborted"].includes(gameState.arena.state));
   $("#replay-slider").disabled = busy || !gameState?.moves.length;
@@ -81,10 +90,14 @@ function renderState() {
   $("#stop-match").disabled = busy;
   renderBoard();
   renderThinking();
-  if (!gameState) { $("#game-status").textContent = "等待开局"; $("#opponent-label").textContent = "AI 挑战"; return; }
+  if (!gameState) {
+    $("#game-status").textContent = "等待开局";
+    $("#opponent-label").textContent = viewMode === "arena" ? "AI 挑战" : "人机练习";
+    return;
+  }
   $("#game-id").textContent = gameState.id;
-  $("#current-player").textContent = names[gameState.currentPlayer] || "已结束";
-  $("#remaining-stones").textContent = gameState.remainingStones + " 子";
+  $("#current-player").textContent = gameState.status === "active" ? names[gameState.currentPlayer] : "已结束";
+  $("#remaining-stones").textContent = gameState.status === "active" ? gameState.remainingStones + " 子" : "—";
   $("#opponent-label").textContent = gameState.arena ? "AI 挑战" : gameState.opponent === "model" ? "大模型 AI" : "规则 AI";
   $("#game-status").textContent = isReplaying() ? "棋谱回放" : gameState.status === "active" ? "对局进行中" : gameState.status === "aborted" ? "对局已中断" : gameState.status === "draw" ? "和棋" : names[gameState.winner] + "获胜";
   $("#turn-status").textContent = isReplaying() ? "回到最新后可继续落子" : gameState.status === "active" ? names[gameState.currentPlayer] + "还需落 " + gameState.remainingStones + " 子" : "本局已结束 · 可以复盘";
@@ -96,15 +109,17 @@ function renderState() {
   $("#replay-slider").max = gameState.moves.length;
   $("#replay-slider").value = replayIndex;
   $("#replay-label").textContent = replayIndex + " / " + gameState.moves.length;
-  $("#retry-ai").hidden = !!gameState.arena || busy || isReplaying() || gameState.status !== "active" || gameState.currentPlayer !== "white";
-  const decision = gameState.moves.slice(0, replayIndex).filter((m) => gameState.arena || m.player === "white").at(-1);
+  $("#retry-ai").hidden = !!gameState.arena || busy || isReplaying() || gameState.status !== "active" || gameState.currentPlayer !== gameState.aiColor;
+  const decision = gameState.moves.slice(0, replayIndex).filter((m) => gameState.arena || m.player === gameState.aiColor).at(-1);
   $("#ai-decision").hidden = !decision?.reason;
   if (decision?.reason) {
     $("#ai-decision").innerHTML = "<strong>第 " + decision.moveNo + " 手 · " + escapeHtml(sources[decision.source] || "AI") + "</strong>" + escapeHtml(decision.reason);
   }
   renderAnalysis(gameState.analysis);
   for (const color of ["black", "white"]) {
-    $("#" + color + "-label").textContent = gameState.arena ? (gameState.arena.challengerColor === color ? gameState.arena.challengerName : "官方 AI") : color === "black" ? "你执黑" : "AI 执白";
+    $("#" + color + "-label").textContent = gameState.arena
+      ? (gameState.arena.challengerColor === color ? gameState.arena.challengerName : "官方 AI")
+      : (color === gameState.humanColor ? "你" : "AI") + " · " + names[color];
   }
   $("#move-times").hidden = !gameState.arena;
   if (gameState.arena) {
@@ -115,7 +130,12 @@ function renderState() {
 }
 function setState(state, follow = true) {
   const oldIndex = replayIndex;
+  const changedGame = gameState?.id !== state.id;
   gameState = state;
+  if (changedGame && !state.arena) {
+    document.querySelector('[name="human-color"][value="' + state.humanColor + '"]').checked = true;
+    $("#opponent").value = state.opponent;
+  }
   replayIndex = follow ? state.moves.length : Math.min(oldIndex, state.moves.length);
   rememberGame(state.id);
   renderState();
@@ -140,7 +160,7 @@ async function refreshHistory() {
     option.value = game.id;
     const time = new Date(game.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
     const result = game.status === "active" ? "进行中" : game.status === "aborted" ? "已中断" : game.status === "draw" ? "和棋" : names[game.winner] + "胜";
-    option.textContent = time + " · " + (game.opponent === "arena" ? "AI挑战 · " : "") + game.moveCount + " 子 · " + result;
+    option.textContent = time + " · " + (game.opponent === "arena" ? "AI挑战" : game.humanColor === "white" ? "执白" : "执黑") + " · " + game.moveCount + " 子 · " + result;
     select.append(option);
   }
   if (!games.length) select.append(new Option("暂无对局", ""));
@@ -157,8 +177,8 @@ async function analyzeCurrent() {
   }
 }
 async function aiTurn() {
-  if (gameState.status !== "active" || gameState.currentPlayer !== "white") return;
-  setMessage(gameState.opponent === "model" ? "大模型正在选择落点，请稍候…" : "你的规则 AI 正在落子…");
+  if (gameState.status !== "active" || gameState.currentPlayer !== gameState.aiColor) return;
+  setMessage(gameState.opponent === "model" ? "大模型正在选择落点，请稍候…" : "AI 正在落子…");
   setState(await api("/api/games/" + gameState.id + "/ai-turn", { method: "POST", body: "{}" }));
   const fallback = gameState.moves.slice(-2).find((m) => m.source === "local-fallback");
   setMessage(fallback ? fallback.reason : "轮到你了，每回合连续落两颗子。");
@@ -168,12 +188,12 @@ async function afterMove() {
   if (gameState.status !== "active") {
     await refreshHistory();
     await analyzeCurrent();
-  } else if (gameState.currentPlayer === "white") {
+  } else if (gameState.currentPlayer === gameState.aiColor) {
     await aiTurn();
     await refreshHistory();
     if (gameState.status !== "active") await analyzeCurrent();
   } else {
-    setMessage(gameState.remainingStones === 1 ? "同一回合，还需要再落一颗子。" : "轮到你执黑。");
+    setMessage(gameState.moves.length === 0 ? "你执黑，首回合落一颗子。" : gameState.remainingStones === 1 ? "同一回合，还需要再落一颗子。" : "轮到你了，请连续落两颗子。");
   }
 }
 async function runBusy(action) {
@@ -184,16 +204,17 @@ async function runBusy(action) {
   finally { busy = false; renderState(); }
 }
 async function handleCellClick(row, col) {
-  if (busy || !gameState || gameState.arena || isReplaying() || gameState.currentPlayer !== "black" || gameState.status !== "active") return;
+  if (busy || !gameState || gameState.arena || isReplaying() || gameState.currentPlayer !== gameState.humanColor || gameState.status !== "active") return;
   await runBusy(async () => {
     setState(await api("/api/games/" + gameState.id + "/moves", { method: "POST", body: JSON.stringify({ row, col }) }));
     await afterMove();
   });
 }
 async function newGame() {
-  setState(await api("/api/games", { method: "POST", body: JSON.stringify({ opponent: $("#opponent").value }) }));
-  setMessage("你执黑。首回合先落一颗子。");
+  const humanColor = document.querySelector('[name="human-color"]:checked').value;
+  setState(await api("/api/games", { method: "POST", body: JSON.stringify({ opponent: $("#opponent").value, humanColor }) }));
   await refreshHistory();
+  await afterMove();
 }
 $("#new-game").addEventListener("click", () => runBusy(newGame));
 $("#analyze-game").addEventListener("click", () => runBusy(analyzeCurrent));
@@ -208,6 +229,7 @@ $("#history").addEventListener("change", () => runBusy(async () => {
 }));
 function setMode(mode) {
   viewMode = mode;
+  document.body.dataset.mode = mode;
   $("#arena-panel").hidden = mode !== "arena";
   $("#practice-controls").hidden = mode !== "practice";
   $("#arena-live").hidden = mode !== "arena";
@@ -215,6 +237,7 @@ function setMode(mode) {
     $("#mode-" + item).classList.toggle("selected", mode === item);
     $("#mode-" + item).setAttribute("aria-pressed", String(mode === item));
   }
+  renderState();
 }
 function renderThinking() {
   const match = gameState?.arena;
@@ -237,10 +260,7 @@ async function refreshSubmissions(selected) {
   if (submissions.some((s) => s.id === old)) select.value = old;
 }
 $("#mode-arena").addEventListener("click", () => setMode("arena"));
-$("#mode-practice").addEventListener("click", () => runBusy(async () => {
-  setMode("practice");
-  if (!gameState || gameState.arena) await newGame();
-}));
+$("#mode-practice").addEventListener("click", () => setMode("practice"));
 $("#submission").addEventListener("change", renderState);
 $("#upload-form").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -254,6 +274,8 @@ $("#upload-form").addEventListener("submit", (event) => {
 });
 $("#start-match").addEventListener("click", () => runBusy(async () => {
   arenaInfo = await api("/api/arena");
+  $("#arena-readiness").textContent = arenaInfo.officialName + " · " + arenaInfo.message;
+  if (!arenaInfo.ready) $(".protocol-note").open = true;
   if (!arenaInfo.ready) throw new Error(arenaInfo.message);
   setState(await api("/api/arena/matches", { method: "POST", body: JSON.stringify({
     submissionId: $("#submission").value, challengerColor: $("#challenger-color").value,
@@ -293,6 +315,7 @@ async function initialize() {
     modelOption.textContent = health.modelConfigured ? "大模型 AI · 已配置" : "大模型 AI · 需配置";
     arenaInfo = await api("/api/arena");
     $("#arena-readiness").textContent = arenaInfo.officialName + " · " + arenaInfo.message;
+    if (!arenaInfo.ready) $(".protocol-note").open = true;
     await refreshSubmissions();
     const saved = new URL(location.href).searchParams.get("game") || savedGameId();
     if (saved) {
@@ -305,7 +328,7 @@ async function initialize() {
     if (!gameState) { setMessage("上传 AI 后开始挑战，或切换到人机练习。"); await refreshHistory(); }
     else {
       await refreshHistory();
-      if (gameState.currentPlayer === "white") await afterMove();
+      if (!gameState.arena && gameState.currentPlayer === gameState.aiColor) await afterMove();
     }
   } catch (error) { setMessage("初始化失败：" + error.message + "。可点击新建棋局重试。"); }
   finally { busy = false; renderState(); }

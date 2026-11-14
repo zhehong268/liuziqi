@@ -135,6 +135,43 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self.client.post(self.url + "/moves", json={"row": 0, "col": 0}).status_code, 400)
         self.assertEqual(self.client.get("/api/games/missing").status_code, 404)
 
+    def test_white_human_ai_opens_then_alternates_two_stone_turns(self):
+        game = self.client.post("/api/games", json={"humanColor": "white"}).get_json()
+        url = "/api/games/" + game["id"]
+        self.assertEqual((game["humanColor"], game["aiColor"], game["currentPlayer"]), ("white", "black", "black"))
+        self.assertEqual(self.client.post(url + "/moves", json={"row": 0, "col": 0}).status_code, 400)
+        state = self.client.post(url + "/ai-turn").get_json()
+        self.assertEqual(len(state["moves"]), 1)
+        self.assertEqual(state["moves"][0]["player"], "black")
+        self.assertEqual((state["currentPlayer"], state["remainingStones"]), ("white", 2))
+        self.client.post(url + "/moves", json={"row": 0, "col": 0})
+        self.assertEqual(self.client.post(url + "/ai-turn").status_code, 400)
+        self.client.post(url + "/moves", json={"row": 0, "col": 1})
+        state = self.client.post(url + "/ai-turn").get_json()
+        self.assertEqual(len(state["moves"]), 5)
+        self.assertEqual(state["currentPlayer"], "white")
+        web.init_db()
+        self.assertEqual(web.app.test_client().get(url).get_json(), state)
+        self.assertEqual(self.client.get(url + "/export?format=json").get_json()["humanColor"], "white")
+        self.assertIn("Human: white / AI: black", self.client.get(url + "/export").get_data(as_text=True))
+        review = self.client.post(url + "/analysis").get_json()["analysis"]
+        self.assertIn("白方", review["summary"])
+
+    def test_invalid_human_color_is_rejected(self):
+        for color in ("red", "", None, 1, [], {}):
+            with self.subTest(color=color):
+                self.assertEqual(self.client.post("/api/games", json={"humanColor": color}).status_code, 400)
+
+    def test_black_ai_win_on_first_stone_does_not_add_second(self):
+        game = self.client.post("/api/games", json={"humanColor": "white"}).get_json()
+        positions = [(0, 0), (18, 18), (18, 16), (0, 1), (0, 2), (17, 18),
+                     (17, 16), (0, 3), (0, 4), (16, 18), (16, 16)]
+        with web.get_db() as db:
+            for count, (row, col) in enumerate(positions):
+                web.place_one(db, game["id"], row, col, bot.current_player(count))
+        state = self.client.post("/api/games/" + game["id"] + "/ai-turn").get_json()
+        self.assertEqual((state["winner"], state["status"], len(state["moves"])), ("black", "finished", 12))
+
     def test_win_on_first_stone_ends_turn_immediately(self):
         # 合法顺序：白方第 10 颗子直接成六，此时本回合第二颗不能再下。
         positions = [(18, 18), (0, 0), (0, 1), (18, 16), (17, 18),
@@ -161,6 +198,7 @@ class ApiTests(unittest.TestCase):
         web.init_db()
         state = self.client.get("/api/games/old").get_json()
         self.assertEqual(state["opponent"], "local")
+        self.assertEqual(state["humanColor"], "black")
         self.assertEqual(len(state["moves"]), 1)
 
 

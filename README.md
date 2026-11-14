@@ -2,9 +2,9 @@
 
 [![Demo checks](https://github.com/zhehong268/liuziqi/actions/workflows/check.yml/badge.svg?branch=main)](https://github.com/zhehong268/liuziqi/actions/workflows/check.yml)
 
-“电子斗蛐蛐”任务 2 的六子棋 Web 应用。上传自己的 Python 或 C++ AI，挑战网站官方版，查看逐子耗时、赛后复盘并导出棋谱。后端用 Flask 和 SQLite，前端是原生 JavaScript。
+“电子斗蛐蛐”任务 2 的六子棋 Web 应用。上传自己的 Python 或 C++ AI，挑战网站官方版，也可以自选先后手进行人机练习。对局有逐子记录、赛后复盘和棋谱导出。后端用 Flask 和 SQLite，前端是原生 JavaScript。
 
-![AI 挑战、逐子耗时与赛后复盘](docs/images/arena.jpg)
+![墨弈：水墨棋局与先后手选择](docs/images/arena.jpg)
 
 ## 运行
 
@@ -37,7 +37,9 @@ docker build -t connect6-sandbox:1 sandbox
 
 19×19 棋盘，黑先。黑方首回合下一颗，之后双方每回合各下两颗。横、竖或斜向连成六颗及以上获胜，棋盘下满和棋。第一颗已经成六时立即结束，不用补第二颗。
 
-“人机练习”中你执黑，简单规则 AI 执白。两种模式都可以：
+进入“人机练习”，选择执黑或执白，再点“开一局”。执黑由你先落一颗；执白由 AI 自动开局，随后轮到你连续落两颗。刷新、历史恢复和复盘都会保留本局执子。修改选项只影响新局。
+
+页面采用宣纸底色、淡墨山景和朱印，棋盘标有行列坐标。两种模式都可以：
 
 - 自动保存对局，刷新后接着下。
 - 从历史列表打开最近 50 局。
