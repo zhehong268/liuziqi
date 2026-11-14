@@ -1,5 +1,6 @@
 """生成不包含后端、密钥或本地对局的 GitHub Pages 目录。"""
 from pathlib import Path
+import hashlib
 import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,11 +22,14 @@ def build():
                         '<script src="./browser-api.js" defer></script>\n  ' + needle)
     html = html.replace("</nav>", '<a class="client-download" href="https://github.com/zhehong268/liuziqi/releases/latest" '
                         'target="_blank" rel="noopener">下载客户端</a></nav>', 1)
-    (OUTPUT / "index.html").write_text(html, encoding="utf-8")
     css = (OUTPUT / "styles.css").read_text(encoding="utf-8").replace("/static/", "./")
     css += '\nbody[data-edition="browser"] #mode-arena, body[data-edition="browser"] #arena-panel { display: none !important; }\n'
     css += '.client-download { padding: 8px 12px; color: var(--muted); text-decoration: none; font: 15px var(--serif); }\n'
     (OUTPUT / "styles.css").write_text(css, encoding="utf-8")
+    for name in ("styles.css", "engine.js", "browser-api.js", "app.js"):
+        revision = hashlib.sha256((OUTPUT / name).read_bytes()).hexdigest()[:12]
+        html = html.replace('="./' + name + '"', '="./' + name + '?v=' + revision + '"')
+    (OUTPUT / "index.html").write_text(html, encoding="utf-8")
     (OUTPUT / ".nojekyll").touch()
     print(OUTPUT)
 
