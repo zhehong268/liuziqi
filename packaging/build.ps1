@@ -1,7 +1,7 @@
-param([string]$Version = "0.4.0")
+param([string]$Version = "0.4.1")
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)
-python -m PyInstaller --noconfirm --clean --onedir --windowed --name MoYi --specpath build --workpath build/pyinstaller --add-data "static:static" --add-data "official:official" --add-data "sandbox:sandbox" --add-data "bot.py:." --add-data ".env.example:." desktop.py
+python -m PyInstaller --noconfirm --clean --onedir --windowed --name MoYi --specpath build --workpath build/pyinstaller --add-data "$PWD/static:static" --add-data "$PWD/official:official" --add-data "$PWD/sandbox:sandbox" --add-data "$PWD/bot.py:." --add-data "$PWD/.env.example:." desktop.py
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller 打包失败" }
 $check = Start-Process -FilePath "$PWD/dist/MoYi/MoYi.exe" -ArgumentList @("--self-test", ('"{0}"' -f "$PWD/dist/self-test.json")) -WindowStyle Hidden -Wait -PassThru
 if ($check.ExitCode -ne 0) {
