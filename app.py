@@ -3,224 +3,129 @@ from __future__ import annotations
 import json
 import secrets
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, jsonify, make_response, request, send_from_directory
 
+from bot import BOARD_SIZE, current_player, has_won, legal_cells, remaining_in_turn
+from agent import analyze_game, choose_agent_move, model_configured
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
-DB_PATH = DATA_DIR / "connect6.db"
-BOARD_SIZE = 19
-WIN_LENGTH = 6
-
+DB_PATH = BASE_DIR / "data" / "connect6.db"
 app = Flask(__name__, static_folder="static")
+app.json.ensure_ascii = False
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def get_db() -> sqlite3.Connection:
-    DATA_DIR.mkdir(exist_ok=True)
-    connection = sqlite3.connect(DB_PATH)
+@contextmanager
+def get_db():
+    DB_PATH.parent.mkdir(exist_ok=True, parents=True)
+    connection = sqlite3.connect(DB_PATH, timeout=10)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
 
 
 def init_db() -> None:
     with get_db() as db:
-        db.executescript(
-            """
+        db.executescript("""
             CREATE TABLE IF NOT EXISTS games (
-                id TEXT PRIMARY KEY,
-                status TEXT NOT NULL DEFAULT 'active',
-                winner TEXT,
-                created_at TEXT NOT NULL
+                id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'active',
+                winner TEXT, created_at TEXT NOT NULL,
+                opponent TEXT NOT NULL DEFAULT 'local'
             );
-
             CREATE TABLE IF NOT EXISTS moves (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                game_id TEXT NOT NULL,
+                id INTEGER PRIMARY KEY AUTOINCREMENT, game_id TEXT NOT NULL,
                 move_no INTEGER NOT NULL,
                 player TEXT NOT NULL CHECK (player IN ('black', 'white')),
                 row INTEGER NOT NULL CHECK (row BETWEEN 0 AND 18),
                 col INTEGER NOT NULL CHECK (col BETWEEN 0 AND 18),
-                created_at TEXT NOT NULL,
+                created_at TEXT NOT NULL, source TEXT NOT NULL DEFAULT 'unknown',
+                reason TEXT NOT NULL DEFAULT '',
                 FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE,
-                UNIQUE (game_id, row, col),
-                UNIQUE (game_id, move_no)
+                UNIQUE (game_id, row, col), UNIQUE (game_id, move_no)
             );
-            """
-        )
+            CREATE TABLE IF NOT EXISTS analyses (
+                game_id TEXT NOT NULL, move_count INTEGER NOT NULL,
+                result_json TEXT NOT NULL, created_at TEXT NOT NULL,
+                PRIMARY KEY (game_id, move_count),
+                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
+            );
+        """)
+        # 无损兼容旧版数据库，不删除已有棋局。
+        for table, column, definition in (
+            ("games", "opponent", "TEXT NOT NULL DEFAULT 'local'"),
+            ("moves", "source", "TEXT NOT NULL DEFAULT 'unknown'"),
+            ("moves", "reason", "TEXT NOT NULL DEFAULT ''"),
+        ):
+            columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+            if column not in columns:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
-def get_game(db: sqlite3.Connection, game_id: str) -> sqlite3.Row | None:
+def get_game(db, game_id):
     return db.execute("SELECT * FROM games WHERE id = ?", (game_id,)).fetchone()
 
 
-def get_moves(db: sqlite3.Connection, game_id: str) -> list[sqlite3.Row]:
-    return db.execute(
-        "SELECT * FROM moves WHERE game_id = ? ORDER BY move_no", (game_id,)
-    ).fetchall()
+def get_moves(db, game_id):
+    return db.execute("SELECT * FROM moves WHERE game_id = ? ORDER BY move_no", (game_id,)).fetchall()
 
 
-def board_from_moves(moves: list[sqlite3.Row]) -> list[list[str | None]]:
-    board: list[list[str | None]] = [
-        [None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)
-    ]
+def board_from_moves(moves):
+    board = [[None for _ in range(BOARD_SIZE)] for _ in range(BOARD_SIZE)]
     for move in moves:
         board[move["row"]][move["col"]] = move["player"]
     return board
 
 
-def current_player(move_count: int) -> str:
-    """Return whose turn it is before the next single-stone request."""
-    if move_count == 0:
-        return "black"
-    pair_index = (move_count - 1) // 2
-    return "white" if pair_index % 2 == 0 else "black"
-
-
-def remaining_in_turn(move_count: int) -> int:
-    if move_count == 0:
-        return 1
-    return 2 - ((move_count - 1) % 2)
-
-
-def line_length(
-    board: list[list[str | None]], row: int, col: int, player: str, dr: int, dc: int
-) -> int:
-    length = 1
-    for direction in (1, -1):
-        r, c = row + dr * direction, col + dc * direction
-        while 0 <= r < BOARD_SIZE and 0 <= c < BOARD_SIZE and board[r][c] == player:
-            length += 1
-            r += dr * direction
-            c += dc * direction
-    return length
-
-
-def has_won(board: list[list[str | None]], row: int, col: int, player: str) -> bool:
-    return any(
-        line_length(board, row, col, player, dr, dc) >= WIN_LENGTH
-        for dr, dc in ((1, 0), (0, 1), (1, 1), (1, -1))
-    )
-
-
-def legal_cells(board: list[list[str | None]]) -> list[tuple[int, int]]:
-    return [
-        (row, col)
-        for row in range(BOARD_SIZE)
-        for col in range(BOARD_SIZE)
-        if board[row][col] is None
-    ]
-
-
-def choose_ai_move(board: list[list[str | None]], player: str = "white") -> tuple[int, int]:
-    """A deterministic teaching AI: win, block, then prefer the center and neighbors."""
-    opponent = "black" if player == "white" else "white"
-    cells = legal_cells(board)
-    if not cells:
-        raise ValueError("board is full")
-
-    def winning_cell(candidate_player: str) -> tuple[int, int] | None:
-        for row, col in cells:
-            board[row][col] = candidate_player
-            won = has_won(board, row, col, candidate_player)
-            board[row][col] = None
-            if won:
-                return row, col
-        return None
-
-    immediate_win = winning_cell(player)
-    if immediate_win:
-        return immediate_win
-    immediate_block = winning_cell(opponent)
-    if immediate_block:
-        return immediate_block
-
-    occupied = [
-        (row, col)
-        for row in range(BOARD_SIZE)
-        for col in range(BOARD_SIZE)
-        if board[row][col] is not None
-    ]
-    center = (BOARD_SIZE - 1) / 2
-
-    def score(cell: tuple[int, int]) -> tuple[int, float, float]:
-        row, col = cell
-        neighbors = sum(
-            1
-            for dr in (-1, 0, 1)
-            for dc in (-1, 0, 1)
-            if (dr or dc)
-            and 0 <= row + dr < BOARD_SIZE
-            and 0 <= col + dc < BOARD_SIZE
-            and board[row + dr][col + dc] is not None
-        )
-        distance = abs(row - center) + abs(col - center)
-        occupied_distance = min(
-            (abs(row - r) + abs(col - c) for r, c in occupied), default=0
-        )
-        return neighbors, -distance, -occupied_distance
-
-    return max(cells, key=score)
-
-
-def game_payload(db: sqlite3.Connection, game: sqlite3.Row) -> dict:
+def game_payload(db, game):
     moves = get_moves(db, game["id"])
-    board = board_from_moves(moves)
-    move_count = len(moves)
+    analysis = db.execute("SELECT result_json FROM analyses WHERE game_id = ? AND move_count = ?",
+                          (game["id"], len(moves))).fetchone()
     return {
-        "id": game["id"],
-        "status": game["status"],
-        "winner": game["winner"],
-        "currentPlayer": None if game["status"] != "active" else current_player(move_count),
-        "remainingStones": 0
-        if game["status"] != "active"
-        else remaining_in_turn(move_count),
-        "board": board,
-        "moves": [
-            {
-                "moveNo": move["move_no"],
-                "player": move["player"],
-                "row": move["row"],
-                "col": move["col"],
-            }
-            for move in moves
-        ],
+        "id": game["id"], "status": game["status"], "winner": game["winner"],
+        "opponent": game["opponent"], "createdAt": game["created_at"],
+        "currentPlayer": current_player(len(moves)) if game["status"] == "active" else None,
+        "remainingStones": remaining_in_turn(len(moves)) if game["status"] == "active" else 0,
+        "board": board_from_moves(moves),
+        "moves": [{"moveNo": m["move_no"], "player": m["player"], "row": m["row"],
+                   "col": m["col"], "source": m["source"], "reason": m["reason"]} for m in moves],
+        "analysis": json.loads(analysis["result_json"]) if analysis else None,
     }
 
 
-def place_one(db: sqlite3.Connection, game_id: str, row: int, col: int, player: str) -> dict:
+def place_one(db, game_id, row, col, player, source="human", reason=""):
     game = get_game(db, game_id)
     if game is None:
-        raise LookupError("game not found")
+        raise LookupError("找不到棋局")
     moves = get_moves(db, game_id)
     if game["status"] != "active":
-        raise ValueError("game is already over")
+        raise ValueError("本局已经结束")
     if player != current_player(len(moves)):
-        raise ValueError(f"it is {current_player(len(moves))}'s turn")
-    if not (0 <= row < BOARD_SIZE and 0 <= col < BOARD_SIZE):
-        raise ValueError("row and col must be between 0 and 18")
+        raise ValueError("还没有轮到你落子")
+    if type(row) is not int or type(col) is not int or not (0 <= row < 19 and 0 <= col < 19):
+        raise ValueError("row 和 col 必须是 0～18 的整数")
     board = board_from_moves(moves)
     if board[row][col] is not None:
-        raise ValueError("cell is already occupied")
-
-    move_no = len(moves) + 1
-    db.execute(
-        "INSERT INTO moves (game_id, move_no, player, row, col, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (game_id, move_no, player, row, col, now_iso()),
-    )
+        raise ValueError("这里已经有棋子了")
+    db.execute("""INSERT INTO moves (game_id, move_no, player, row, col, created_at, source, reason)
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (game_id, len(moves) + 1, player, row, col, now_iso(), source, reason))
     board[row][col] = player
     if has_won(board, row, col, player):
         db.execute("UPDATE games SET status = 'finished', winner = ? WHERE id = ?", (player, game_id))
     elif not legal_cells(board):
         db.execute("UPDATE games SET status = 'draw', winner = NULL WHERE id = ?", (game_id,))
-    return game_payload(db, get_game(db, game_id))
 
 
 @app.get("/")
@@ -230,120 +135,139 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return jsonify({"ok": True, "service": "connect6-demo"})
+    return jsonify({"ok": True, "service": "connect6-demo", "modelConfigured": model_configured()})
+
+
+@app.get("/api/games")
+def list_games():
+    with get_db() as db:
+        rows = db.execute("""SELECT g.*, (SELECT COUNT(*) FROM moves m WHERE m.game_id = g.id) AS move_count
+                             FROM games g ORDER BY created_at DESC LIMIT 50""").fetchall()
+        return jsonify({"games": [{"id": g["id"], "status": g["status"], "winner": g["winner"],
+                                   "opponent": g["opponent"], "createdAt": g["created_at"],
+                                   "moveCount": g["move_count"]} for g in rows]})
 
 
 @app.post("/api/games")
 def create_game():
+    data = request.get_json(silent=True)
+    if data is None:
+        data = {}
+    if not isinstance(data, dict) or data.get("opponent", "local") not in ("local", "model"):
+        return jsonify({"error": "opponent 只能是 local 或 model"}), 400
+    opponent = data.get("opponent", "local")
+    if opponent == "model" and not model_configured():
+        return jsonify({"error": "请先在 .env 配置 API Key 和模型名，再重启后端"}), 400
     game_id = secrets.token_urlsafe(8)
     with get_db() as db:
-        db.execute(
-            "INSERT INTO games (id, status, created_at) VALUES (?, 'active', ?)",
-            (game_id, now_iso()),
-        )
+        db.execute("INSERT INTO games (id, status, created_at, opponent) VALUES (?, 'active', ?, ?)",
+                   (game_id, now_iso(), opponent))
         return jsonify(game_payload(db, get_game(db, game_id))), 201
 
 
 @app.get("/api/games/<game_id>")
-def read_game(game_id: str):
+def read_game(game_id):
     with get_db() as db:
         game = get_game(db, game_id)
         if game is None:
-            return jsonify({"error": "game not found"}), 404
+            return jsonify({"error": "找不到棋局"}), 404
         return jsonify(game_payload(db, game))
 
 
 @app.post("/api/games/<game_id>/moves")
-def create_move(game_id: str):
-    data = request.get_json(silent=True) or {}
-    try:
-        row = int(data["row"])
-        col = int(data["col"])
-    except (KeyError, TypeError, ValueError):
-        return jsonify({"error": "row and col are required integers"}), 400
-
+def create_move(game_id):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or type(data.get("row")) is not int or type(data.get("col")) is not int:
+        return jsonify({"error": "请提供整数 row、col"}), 400
     with get_db() as db:
+        db.execute("BEGIN IMMEDIATE")
         try:
-            payload = place_one(db, game_id, row, col, "black")
+            place_one(db, game_id, data["row"], data["col"], "black")
         except LookupError as error:
             return jsonify({"error": str(error)}), 404
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
-        return jsonify(payload)
+        return jsonify(game_payload(db, get_game(db, game_id)))
 
 
 @app.post("/api/games/<game_id>/ai-turn")
-def create_ai_turn(game_id: str):
+def create_ai_turn(game_id):
     with get_db() as db:
         game = get_game(db, game_id)
         if game is None:
-            return jsonify({"error": "game not found"}), 404
-        moves = get_moves(db, game_id)
-        if game["status"] != "active":
-            return jsonify(game_payload(db, game))
-        if current_player(len(moves)) != "white":
-            return jsonify({"error": "AI can move only for white"}), 400
+            return jsonify({"error": "找不到棋局"}), 404
+        snapshot = game_payload(db, game)
+    if snapshot["status"] != "active":
+        return jsonify(snapshot)
+    if snapshot["currentPlayer"] != "white":
+        return jsonify({"error": "当前不是白方 AI 的回合"}), 400
 
-        for _ in range(remaining_in_turn(len(moves))):
-            board = board_from_moves(get_moves(db, game_id))
-            row, col = choose_ai_move(board, "white")
-            place_one(db, game_id, row, col, "white")
-            game = get_game(db, game_id)
-            if game["status"] != "active":
-                break
-        return jsonify(game_payload(db, game))
-
-
-@app.get("/api/games/<game_id>/export")
-def export_game(game_id: str):
+    # 网络请求在数据库事务外完成，避免等待模型时锁住 SQLite。
+    board = snapshot["board"]
+    decisions = []
+    for _ in range(snapshot["remainingStones"]):
+        decision = choose_agent_move(board, "white", snapshot["opponent"])
+        decisions.append(decision)
+        row, col = decision["row"], decision["col"]
+        board[row][col] = "white"
+        if has_won(board, row, col, "white") or not legal_cells(board):
+            break
     with get_db() as db:
-        game = get_game(db, game_id)
-        if game is None:
-            return jsonify({"error": "game not found"}), 404
-        moves = get_moves(db, game_id)
-        lines = [
-            "Connect6 Demo Game",
-            f"Game ID: {game_id}",
-            "Rule: 19x19, black first with 1 stone, then 2 stones per turn, six in a row wins.",
-            "",
-        ]
-        for move in moves:
-            lines.append(
-                f"{move['move_no']:03d}. {move['player']:5s} ({move['row'] + 1},{move['col'] + 1})"
-            )
-        response = make_response("\n".join(lines) + "\n")
-        response.headers["Content-Type"] = "text/plain; charset=utf-8"
-        response.headers["Content-Disposition"] = f'attachment; filename="connect6-{game_id}.txt"'
-        return response
+        db.execute("BEGIN IMMEDIATE")
+        if len(get_moves(db, game_id)) != len(snapshot["moves"]):
+            return jsonify({"error": "棋局已改变，请刷新后继续"}), 409
+        for decision in decisions:
+            place_one(db, game_id, decision["row"], decision["col"], "white",
+                      decision["source"], decision["reason"])
+        return jsonify(game_payload(db, get_game(db, game_id)))
 
 
 @app.post("/api/games/<game_id>/analysis")
-def analyze_game_route(game_id: str):
+def analyze_game_route(game_id):
     with get_db() as db:
         game = get_game(db, game_id)
         if game is None:
-            return jsonify({"error": "game not found"}), 404
-        moves = get_moves(db, game_id)
-        move_payload = [
-            {
-                "moveNo": move["move_no"],
-                "player": move["player"],
-                "row": move["row"],
-                "col": move["col"],
-            }
-            for move in moves
-        ]
-        try:
-            from agent import analyze_game
+            return jsonify({"error": "找不到棋局"}), 404
+        snapshot = game_payload(db, game)
+    # 同一棋谱复用已保存结果，刷新不反复调用收费 API。
+    analysis = snapshot["analysis"] or analyze_game(snapshot["moves"], snapshot["winner"], snapshot["status"])
+    with get_db() as db:
+        db.execute("""INSERT INTO analyses (game_id, move_count, result_json, created_at) VALUES (?, ?, ?, ?)
+                      ON CONFLICT(game_id, move_count) DO UPDATE SET result_json = excluded.result_json,
+                      created_at = excluded.created_at""",
+                   (game_id, len(snapshot["moves"]), json.dumps(analysis, ensure_ascii=False), now_iso()))
+    return jsonify({"gameId": game_id, "moveCount": len(snapshot["moves"]), "analysis": analysis})
 
-            analysis = analyze_game(move_payload, game["winner"])
-        except (RuntimeError, ValueError) as error:
-            return jsonify({"error": str(error)}), 503
-        except Exception as error:  # keep provider errors out of the browser stack trace
-            return jsonify({"error": f"AI provider request failed: {error}"}), 502
-        return jsonify({"gameId": game_id, "analysis": analysis})
 
+@app.get("/api/games/<game_id>/export")
+def export_game(game_id):
+    with get_db() as db:
+        game = get_game(db, game_id)
+        if game is None:
+            return jsonify({"error": "找不到棋局"}), 404
+        payload = game_payload(db, game)
+    export_format = request.args.get("format", "txt")
+    if export_format not in ("txt", "json"):
+        return jsonify({"error": "导出格式只能是 txt 或 json"}), 400
+    if export_format == "json":
+        payload.update({"game": "connect6", "coordinateBase": 0, "size": 19,
+                        "rule": "black first 1 stone; then 2 stones per turn; >=6 wins"})
+        content, mime = json.dumps(payload, ensure_ascii=False, indent=2), "application/json"
+    else:
+        lines = ["Connect6 Demo Game", f"Game ID: {game_id}",
+                 f"Result: {payload['status']} / {payload['winner'] or '-'}",
+                 "Rule: 19x19, black first 1 stone, then 2 stones per turn, >=6 wins.",
+                 "Coordinates: (row, col), 1-based.", ""]
+        lines += [f"{m['moveNo']:03d}. {m['player']:5s} ({m['row'] + 1},{m['col'] + 1})"
+                  for m in payload["moves"]]
+        content, mime = "\n".join(lines) + "\n", "text/plain"
+    response = make_response(content)
+    response.headers["Content-Type"] = f"{mime}; charset=utf-8"
+    response.headers["Content-Disposition"] = f'attachment; filename="connect6-{game_id}.{export_format}"'
+    return response
+
+
+init_db()
 
 if __name__ == "__main__":
-    init_db()
-    app.run(debug=True, port=5000)
+    app.run(host="127.0.0.1", port=5000, debug=False)
