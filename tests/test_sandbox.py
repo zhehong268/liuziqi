@@ -2,6 +2,7 @@
 import json
 import io
 import os
+import stat
 from pathlib import Path
 import tempfile
 import time
@@ -58,8 +59,15 @@ int main() {
                   << id << "\",\"action\":{\"kind\":\"PLACE\",\"row\":0,\"col\":0}}" << std::endl;
     }
 }''', encoding="utf-8")
+        directory.chmod(0o700)
+        source.chmod(0o600)
         artifact = prepare(source, "cpp", directory / "cpp-build")
         self.assertTrue(artifact.exists())
+        if os.name != "nt":
+            self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(source.stat().st_mode), 0o600)
+            self.assertEqual(artifact.stat().st_uid, os.getuid())
+            self.assertEqual(stat.S_IMODE(artifact.stat().st_mode), 0o755)
         process = BotProcess(artifact)
         try:
             action, _ = process.ask(build_request("cpp-integration", []))

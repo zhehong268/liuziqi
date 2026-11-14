@@ -7,6 +7,7 @@ from pathlib import Path
 import queue
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
@@ -78,6 +79,7 @@ def remove_stale_containers():
 def prepare(source: Path, language: str, destination: Path) -> Path:
     """编译阶段单独放宽进程数，让 g++ 能启动 cc1plus 和链接器。"""
     destination.mkdir(parents=True, exist_ok=True)
+    destination.chmod(0o755)
     if language == "python":
         output = destination / "bot.py"
         shutil.copyfile(source, output)
@@ -87,17 +89,29 @@ def prepare(source: Path, language: str, destination: Path) -> Path:
     stamp = destination / "compiled.ok"
     if output.exists() and stamp.exists():
         return output
-    destination.chmod(0o777)
+    # 暂存副本有固定权限，不把调用方的 0700 临时目录直接挂给 nobody。
+    workspace = tempfile.TemporaryDirectory(prefix="compile-", dir=destination)
+    source_dir = Path(workspace.name) / "source"
+    output_dir = Path(workspace.name) / "output"
+    source_dir.mkdir()
+    source_dir.chmod(0o755)
+    output_dir.mkdir()
+    output_dir.chmod(0o777)
+    copied_source = source_dir / "bot.cpp"
+    candidate = output_dir / "bot"
+    staged_artifact = destination / ("bot-" + uuid.uuid4().hex)
     name = "c6-build-" + uuid.uuid4().hex
     command = ["docker", "run", *limits(name, compile_mode=True),
-               "--mount", f"type=bind,source={source.parent.resolve()},target=/source,readonly",
-               "--mount", f"type=bind,source={destination.resolve()},target=/output",
-               IMAGE, "g++", "-std=c++17", "-O2", "-pipe", "/source/" + source.name,
+               "--mount", f"type=bind,source={source_dir.resolve()},target=/source,readonly",
+               "--mount", f"type=bind,source={output_dir.resolve()},target=/output",
+               IMAGE, "g++", "-std=c++17", "-O2", "-pipe", "/source/bot.cpp",
                "-o", "/output/bot"]
     tail = bytearray()
     process = None
     reader = None
     try:
+        shutil.copyfile(source, copied_source)
+        copied_source.chmod(0o644)
         process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
@@ -114,10 +128,14 @@ def prepare(source: Path, language: str, destination: Path) -> Path:
         except subprocess.TimeoutExpired as error:
             raise SandboxError("编译超过 60 秒，已终止。") from error
         reader.join(timeout=2)
-        if code or not output.exists():
+        if code or not candidate.exists():
             detail = tail.decode("utf-8", errors="replace")[-3000:]
             raise SandboxError("C++ 编译失败：\n" + detail)
-        output.chmod(0o755)
+        # Linux 编译产物归容器的 nobody 所有。复制后由宿主拥有新文件，
+        # 再设置执行权限并原子替换；不 chmod 其他 UID 生成的文件。
+        shutil.copyfile(candidate, staged_artifact)
+        staged_artifact.chmod(0o755)
+        staged_artifact.replace(output)
         stamp.write_text("ok", encoding="ascii")
         return output
     finally:
@@ -129,7 +147,8 @@ def prepare(source: Path, language: str, destination: Path) -> Path:
             if reader:
                 reader.join(timeout=2)
             process.stdout.close()
-        destination.chmod(0o755)
+        staged_artifact.unlink(missing_ok=True)
+        workspace.cleanup()
 
 
 class BotProcess:
