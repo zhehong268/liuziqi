@@ -4,11 +4,12 @@ let replayIndex = 0;
 let viewMode = "arena";
 let arenaInfo = null;
 let polling = false;
+let modelAvailable = false;
 const $ = (selector) => document.querySelector(selector);
 const boardElement = $("#board");
 const storageKey = "connect6.currentGame";
 const names = { black: "黑方", white: "白方" };
-const sources = { model: "大模型", local: "我的规则 AI", "local-fallback": "本地 AI 接管", official: "官方 AI", challenger: "挑战方 AI" };
+const sources = { model: "外部模型", local: "规则 AI", "local-fallback": "本地 AI 接管", official: "官方 AI", challenger: "挑战方 AI" };
 for (const selector of ["#column-coords", "#row-coords"]) {
   for (let index = 1; index <= 19; index += 1) {
     const label = document.createElement("span");
@@ -67,13 +68,14 @@ function renderAnalysis(analysis) {
   const list = (items, empty) => (items || []).map((s) => "<li>" + escapeHtml(s) + "</li>").join("") || "<li>" + empty + "</li>";
   const mistakes = (analysis.keyMistakes || []).map((m) =>
     "<li>第 " + escapeHtml(m.moveNo) + " 手：" + escapeHtml(m.reason) + "<br>建议：" + escapeHtml(m.suggestion) + "</li>").join("");
-  container.innerHTML = "<h3>本局总结</h3><p>" + escapeHtml(analysis.summary) + "</p>" +
-    '<p class="analysis-provider">分析方式：' + (analysis.provider === "model" ? "大模型 + 棋形工具" : "本地棋形工具") + "</p>" +
+  container.innerHTML = "<p>" + escapeHtml(analysis.summary) + "</p>" +
     (analysis.notice ? '<p class="notice">' + escapeHtml(analysis.notice) + "</p>" : "") +
-    "<h3>可以改进</h3><ul>" + (mistakes || "<li>当前工具没有发现明确问题，可以结合棋谱继续检查。</li>") + "</ul>" +
-    "<h3>做得好的地方</h3><ul>" + list(analysis.strengths, "本次没有记录明确的优点。") + "</ul>" +
-    "<h3>下一局练习</h3><ul>" + list(analysis.nextPractice, "继续对照棋谱练习。") + "</ul>" +
-    "<details><summary>查看 Agent 执行过程</summary><ol>" + list(analysis.trace, "未记录执行过程。") + "</ol></details>";
+    (mistakes ? "<h3>关键手</h3><ul>" + mistakes + "</ul>" : "") +
+    "<details><summary>更多分析</summary>" +
+    "<h3>做得好的地方</h3><ul>" + list(analysis.strengths, "暂无记录。") + "</ul>" +
+    "<h3>练习建议</h3><ul>" + list(analysis.nextPractice, "继续对照棋谱练习。") + "</ul>" +
+    "<h3>Agent 过程</h3><ol>" + list(analysis.trace, "未记录执行过程。") + "</ol>" +
+    '<p class="analysis-provider">' + (analysis.provider === "model" ? "外部模型 + 棋形工具" : "本地棋形工具") + "</p></details>";
 }
 function renderState() {
   $("#new-game").disabled = busy;
@@ -98,9 +100,11 @@ function renderState() {
   $("#game-id").textContent = gameState.id;
   $("#current-player").textContent = gameState.status === "active" ? names[gameState.currentPlayer] : "已结束";
   $("#remaining-stones").textContent = gameState.status === "active" ? gameState.remainingStones + " 子" : "—";
-  $("#opponent-label").textContent = gameState.arena ? "AI 挑战" : gameState.opponent === "model" ? "大模型 AI" : "规则 AI";
-  $("#game-status").textContent = isReplaying() ? "棋谱回放" : gameState.status === "active" ? "对局进行中" : gameState.status === "aborted" ? "对局已中断" : gameState.status === "draw" ? "和棋" : names[gameState.winner] + "获胜";
-  $("#turn-status").textContent = isReplaying() ? "回到最新后可继续落子" : gameState.status === "active" ? names[gameState.currentPlayer] + "还需落 " + gameState.remainingStones + " 子" : "本局已结束 · 可以复盘";
+  $("#opponent-label").textContent = gameState.arena ? "AI 挑战" : gameState.opponent === "model" ? "外部模型" : "规则 AI";
+  $("#game-status").textContent = isReplaying() ? "回放" : gameState.status === "active" ? "进行中" : gameState.status === "aborted" ? "已中断" : gameState.status === "draw" ? "和棋" : names[gameState.winner] + "胜";
+  $("#turn-status").textContent = !isReplaying() && gameState.status === "active"
+    ? (gameState.arena ? names[gameState.currentPlayer] : gameState.currentPlayer === gameState.humanColor ? "轮到你" : "AI 思考中") + " · 余 " + gameState.remainingStones + " 子"
+    : "";
   for (const [selector, format] of [["#export-game", "txt"], ["#export-json", "json"]]) {
     $(selector).href = "/api/games/" + encodeURIComponent(gameState.id) + "/export?format=" + format;
     $(selector).classList.remove("disabled");
@@ -135,6 +139,7 @@ function setState(state, follow = true) {
   if (changedGame && !state.arena) {
     document.querySelector('[name="human-color"][value="' + state.humanColor + '"]').checked = true;
     $("#opponent").value = state.opponent;
+    $("#opponent-field").hidden = !modelAvailable && state.opponent !== "model";
   }
   replayIndex = follow ? state.moves.length : Math.min(oldIndex, state.moves.length);
   rememberGame(state.id);
@@ -152,9 +157,11 @@ async function api(path, options = {}) {
   return data;
 }
 async function refreshHistory() {
-  const { games } = await api("/api/games");
+  const { games: allGames } = await api("/api/games");
+  const games = allGames.filter((game) => game.status !== "active");
   const select = $("#history");
   select.replaceChildren();
+  select.append(new Option(games.length ? "选择已结束对局" : "暂无已结束对局", ""));
   for (const game of games) {
     const option = document.createElement("option");
     option.value = game.id;
@@ -163,25 +170,24 @@ async function refreshHistory() {
     option.textContent = time + " · " + (game.opponent === "arena" ? "AI挑战" : game.humanColor === "white" ? "执白" : "执黑") + " · " + game.moveCount + " 子 · " + result;
     select.append(option);
   }
-  if (!games.length) select.append(new Option("暂无对局", ""));
-  select.value = gameState?.id || "";
+  select.value = games.some((game) => game.id === gameState?.id) ? gameState.id : "";
 }
 async function analyzeCurrent() {
   if (!gameState?.moves.length) return;
-  setMessage("Agent 正在读取棋谱并分析，请稍候…");
+  setMessage("分析中…");
   const result = await api("/api/games/" + gameState.id + "/analysis", { method: "POST", body: "{}" });
   if (gameState.id === result.gameId && gameState.moves.length === result.moveCount) {
     gameState.analysis = result.analysis;
     renderAnalysis(result.analysis);
-    setMessage(result.analysis.notice || "复盘已保存，可以对照棋谱查看关键手数。");
+    setMessage(result.analysis.notice || "");
   }
 }
 async function aiTurn() {
   if (gameState.status !== "active" || gameState.currentPlayer !== gameState.aiColor) return;
-  setMessage(gameState.opponent === "model" ? "大模型正在选择落点，请稍候…" : "AI 正在落子…");
+  setMessage("");
   setState(await api("/api/games/" + gameState.id + "/ai-turn", { method: "POST", body: "{}" }));
   const fallback = gameState.moves.slice(-2).find((m) => m.source === "local-fallback");
-  setMessage(fallback ? fallback.reason : "轮到你了，每回合连续落两颗子。");
+  setMessage(fallback ? fallback.reason : "");
 }
 async function afterMove() {
   if (gameState.arena) return;
@@ -193,7 +199,7 @@ async function afterMove() {
     await refreshHistory();
     if (gameState.status !== "active") await analyzeCurrent();
   } else {
-    setMessage(gameState.moves.length === 0 ? "你执黑，首回合落一颗子。" : gameState.remainingStones === 1 ? "同一回合，还需要再落一颗子。" : "轮到你了，请连续落两颗子。");
+    setMessage("");
   }
 }
 async function runBusy(action) {
@@ -224,7 +230,7 @@ $("#history").addEventListener("change", () => runBusy(async () => {
   if (!id) return;
   setState(await api("/api/games/" + encodeURIComponent(id)));
   setMode(gameState.arena ? "arena" : "practice");
-  setMessage("已读取历史对局。");
+  setMessage("");
   await afterMove();
 }));
 function setMode(mode) {
@@ -241,7 +247,7 @@ function setMode(mode) {
 }
 function renderThinking() {
   const match = gameState?.arena;
-  if (!match) { $("#arena-live").textContent = "上传代码后即可发起挑战"; return; }
+  if (!match) { $("#arena-live").textContent = ""; return; }
   if (match.state === "running" && match.thinkingSince) {
     const elapsed = Math.max(0, (Date.now() - Date.parse(match.thinkingSince)) / 1000);
     $("#arena-live").textContent = names[match.thinkingPlayer] + "思考中 · " + Math.min(10, elapsed).toFixed(1) + " / 10 秒";
@@ -256,8 +262,10 @@ async function refreshSubmissions(selected) {
   const old = selected || select.value;
   select.replaceChildren();
   for (const item of submissions) select.append(new Option(item.name + " · " + item.language + " · " + item.sha256.slice(0, 7), item.id));
-  if (!submissions.length) select.append(new Option("请先上传源码", ""));
+  if (!submissions.length) select.append(new Option("请先上传 AI", ""));
   if (submissions.some((s) => s.id === old)) select.value = old;
+  if (!submissions.length || selected) $("#upload-details").open = true;
+  else $("#upload-details").open = false;
 }
 $("#mode-arena").addEventListener("click", () => setMode("arena"));
 $("#mode-practice").addEventListener("click", () => setMode("practice"));
@@ -268,7 +276,7 @@ $("#upload-form").addEventListener("submit", (event) => {
     try {
       const result = await api("/api/submissions", { method: "POST", body: new FormData(event.target) });
       await refreshSubmissions(result.id);
-      $("#upload-message").textContent = result.name + " 已保存，版本 " + result.sha256.slice(0, 7) + "。选择执子后点击开始挑战。";
+      $("#upload-message").textContent = "已保存 · " + result.sha256.slice(0, 7);
     } catch (error) { $("#upload-message").textContent = error.message; }
   });
 });
@@ -310,9 +318,11 @@ $("#replay-end").addEventListener("click", () => {
 async function initialize() {
   try {
     const health = await api("/api/health");
+    modelAvailable = health.modelConfigured;
+    $("#opponent-field").hidden = !modelAvailable;
     const modelOption = $("#opponent").querySelector('[value="model"]');
     modelOption.disabled = !health.modelConfigured;
-    modelOption.textContent = health.modelConfigured ? "大模型 AI · 已配置" : "大模型 AI · 需配置";
+    modelOption.textContent = "外部模型";
     arenaInfo = await api("/api/arena");
     $("#arena-readiness").textContent = arenaInfo.officialName + " · " + arenaInfo.message;
     if (!arenaInfo.ready) $(".protocol-note").open = true;
@@ -322,15 +332,15 @@ async function initialize() {
       try {
         setState(await api("/api/games/" + encodeURIComponent(saved)));
         setMode(gameState.arena ? "arena" : "practice");
-        setMessage("已恢复上次棋局。");
+        setMessage("");
       } catch (error) { if (error.status !== 404) throw error; }
     }
-    if (!gameState) { setMessage("上传 AI 后开始挑战，或切换到人机练习。"); await refreshHistory(); }
+    if (!gameState) { setMessage(""); await refreshHistory(); }
     else {
       await refreshHistory();
       if (!gameState.arena && gameState.currentPlayer === gameState.aiColor) await afterMove();
     }
-  } catch (error) { setMessage("初始化失败：" + error.message + "。可点击新建棋局重试。"); }
+  } catch (error) { setMessage("加载失败：" + error.message); }
   finally { busy = false; renderState(); }
 }
 initialize();

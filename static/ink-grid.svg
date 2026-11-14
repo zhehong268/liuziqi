@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="570" height="570" viewBox="0 0 570 570" fill="none">
+  <defs><filter id="edge" x="-1%" y="-1%" width="102%" height="102%"><feTurbulence type="fractalNoise" baseFrequency=".16" numOctaves="2" seed="3" result="noise"/><feDisplacementMap in="SourceGraphic" in2="noise" scale=".7"/></filter></defs>
+  <g stroke="#4c4b49" stroke-linecap="round" filter="url(#edge)">
+    <path d="M15 15 Q285 14.74 555 15 M15 15 Q15.26 285 15 555" stroke-width="1.25" opacity="0.46"/>
+    <path d="M15 45 Q285 44.87 555 45 M45 15 Q45.13 285 45 555" stroke-width="0.97" opacity="0.49"/>
+    <path d="M15 75 Q285 75 555 75 M75 15 Q75 285 75 555" stroke-width="1.09" opacity="0.53"/>
+    <path d="M15 105 Q285 105.13 555 105 M105 15 Q104.87 285 105 555" stroke-width="0.85" opacity="0.57"/>
+    <path d="M15 135 Q285 135.26 555 135 M135 15 Q134.74 285 135 555" stroke-width="0.97" opacity="0.46"/>
+    <path d="M15 165 Q285 164.74 555 165 M165 15 Q165.26 285 165 555" stroke-width="1.09" opacity="0.49"/>
+    <path d="M15 195 Q285 194.87 555 195 M195 15 Q195.13 285 195 555" stroke-width="0.85" opacity="0.53"/>
+    <path d="M15 225 Q285 225 555 225 M225 15 Q225 285 225 555" stroke-width="0.97" opacity="0.57"/>
+    <path d="M15 255 Q285 255.13 555 255 M255 15 Q254.87 285 255 555" stroke-width="1.09" opacity="0.46"/>
+    <path d="M15 285 Q285 285.26 555 285 M285 15 Q284.74 285 285 555" stroke-width="0.85" opacity="0.49"/>
+    <path d="M15 315 Q285 314.74 555 315 M315 15 Q315.26 285 315 555" stroke-width="0.97" opacity="0.53"/>
+    <path d="M15 345 Q285 344.87 555 345 M345 15 Q345.13 285 345 555" stroke-width="1.09" opacity="0.57"/>
+    <path d="M15 375 Q285 375 555 375 M375 15 Q375 285 375 555" stroke-width="0.85" opacity="0.46"/>
+    <path d="M15 405 Q285 405.13 555 405 M405 15 Q404.87 285 405 555" stroke-width="0.97" opacity="0.49"/>
+    <path d="M15 435 Q285 435.26 555 435 M435 15 Q434.74 285 435 555" stroke-width="1.09" opacity="0.53"/>
+    <path d="M15 465 Q285 464.74 555 465 M465 15 Q465.26 285 465 555" stroke-width="0.85" opacity="0.57"/>
+    <path d="M15 495 Q285 494.87 555 495 M495 15 Q495.13 285 495 555" stroke-width="0.97" opacity="0.46"/>
+    <path d="M15 525 Q285 525 555 525 M525 15 Q525 285 525 555" stroke-width="1.09" opacity="0.49"/>
+    <path d="M15 555 Q285 555.13 555 555 M555 15 Q554.87 285 555 555" stroke-width="1.25" opacity="0.53"/>
+  </g>
+  <g fill="#52514f" opacity=".78">
+    <circle cx="105" cy="105" r="2.5"/>
+    <circle cx="285" cy="105" r="2.5"/>
+    <circle cx="465" cy="105" r="2.5"/>
+    <circle cx="105" cy="285" r="2.5"/>
+    <circle cx="285" cy="285" r="2.5"/>
+    <circle cx="465" cy="285" r="2.5"/>
+    <circle cx="105" cy="465" r="2.5"/>
+    <circle cx="285" cy="465" r="2.5"/>
+    <circle cx="465" cy="465" r="2.5"/>
+  </g>
+</svg>

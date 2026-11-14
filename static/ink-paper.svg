@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="700" height="700" viewBox="0 0 700 700" fill="none">
+  <defs>
+    <filter id="bleed" x="-8%" y="-8%" width="116%" height="116%"><feTurbulence type="fractalNoise" baseFrequency=".04 .13" numOctaves="3" seed="19" result="paper"/><feDisplacementMap in="SourceGraphic" in2="paper" scale="7"/><feGaussianBlur stdDeviation=".5"/></filter>
+    <radialGradient id="wash"><stop stop-color="#7c7b79" stop-opacity=".2"/><stop offset="1" stop-color="#7c7b79" stop-opacity="0"/></radialGradient>
+  </defs>
+  <g filter="url(#bleed)">
+    <path d="M14 52 15 16 188 17 341 15 510 17 681 16 684 193 681 360 684 526 682 684 516 682 346 685 175 683 16 685 18 508 15 335 17 171Z" fill="#f6f5f3"/>
+    <path d="M15 193 14 18 188 17m322 0 172-1 1 177m0 333-1 158-166-2m-341 1-159 2 2-177" stroke="#605f5d" stroke-width="2.1" opacity=".13"/>
+    <path d="m24 26 170-2m-172 4 1 166m653 312-1 170-169-1M17 334l1 174" stroke="#7d7c7a" stroke-width="4" opacity=".055"/>
+  </g>
+  <ellipse cx="30" cy="638" rx="96" ry="48" fill="url(#wash)" opacity=".35"/>
+  <ellipse cx="656" cy="43" rx="84" ry="39" fill="url(#wash)" opacity=".3"/>
+  <g stroke="#757472" stroke-linecap="round" opacity=".055" filter="url(#bleed)">
+    <path d="M32 677q-8-57-4-103m0 56 21-26m-22 1-14-26m24 68 19-10" stroke-width="3"/>
+  </g>
+</svg>

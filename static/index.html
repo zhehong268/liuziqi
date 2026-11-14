@@ -3,38 +3,31 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="theme-color" content="#f3efe5" />
+  <meta name="theme-color" content="#efeee8" />
   <title>墨弈 · 六子棋</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body data-mode="arena">
   <main class="page-shell">
     <header class="masthead">
-      <div class="brand">
-        <p class="eyebrow">电子斗蛐蛐 · 六子棋</p>
-        <div class="brand-title"><h1>墨弈</h1><span class="seal" aria-label="六子">六<br>子</span></div>
-        <p class="subtitle">黑白之间，落子见真章。</p>
-      </div>
-      <div class="header-note" aria-hidden="true"><span>一枰山水</span><span>两色乾坤</span></div>
+      <div class="brand"><h1>墨弈</h1><span class="seal">六子</span></div>
+      <nav class="mode-tabs" aria-label="对战模式">
+        <button id="mode-arena" class="selected" aria-pressed="true">AI 挑战</button>
+        <button id="mode-practice" aria-pressed="false">人机练习</button>
+      </nav>
+      <details class="rules-note"><summary>规则</summary><p>19 × 19 棋盘，黑先一子，此后双方每回合两子。横、竖、斜向连成六子及以上即胜。</p></details>
     </header>
-    <nav class="mode-tabs" aria-label="对战模式">
-      <button id="mode-arena" class="selected" aria-pressed="true"><span class="tab-number">壹</span>AI 挑战</button>
-      <button id="mode-practice" aria-pressed="false"><span class="tab-number">贰</span>人机练习</button>
-      <span class="nav-note">十九路棋盘 · 六子成线</span>
-    </nav>
     <div class="game-layout">
       <section class="board-panel" aria-label="棋局">
-        <div class="game-meta"><span id="game-status" class="status">正在连接…</span><span id="turn-status">选好执子，即可开局</span></div>
+        <div class="game-meta"><span id="game-status" class="status">连接中…</span><span id="turn-status"></span></div>
         <div class="board-frame">
           <div id="column-coords" class="column-coords" aria-hidden="true"></div>
           <div id="row-coords" class="row-coords" aria-hidden="true"></div>
           <div id="board" class="board" role="group" aria-label="19乘19六子棋棋盘"></div>
-          <span class="board-sign" aria-hidden="true">墨弈</span>
         </div>
         <div class="board-caption">
           <span><i class="legend-stone black"></i><span id="black-label">黑方</span></span>
           <span><i class="legend-stone white"></i><span id="white-label">白方</span></span>
-          <span class="rule-caption">黑先一子，此后各两子</span>
         </div>
         <div class="replay">
           <label for="replay-slider">棋谱 <strong id="replay-label">0 / 0</strong></label>
@@ -42,77 +35,73 @@
           <button id="replay-end" class="quiet" disabled>回到最新</button>
         </div>
         <div class="board-actions">
-          <div id="arena-live" class="arena-live" role="status" aria-live="polite">上传代码后即可发起挑战</div>
+          <div id="arena-live" class="arena-live" role="status" aria-live="polite"></div>
           <div class="export-controls">
             <button id="stop-match" class="quiet danger" hidden>停止本局</button>
-            <a id="export-game" class="text-link disabled" href="#" aria-disabled="true">导出 TXT</a>
-            <a id="export-json" class="text-link disabled" href="#" aria-disabled="true">导出 JSON</a>
+            <span class="export-label">导出</span>
+            <a id="export-game" class="text-link disabled" href="#" aria-label="导出 TXT" aria-disabled="true">TXT</a>
+            <a id="export-json" class="text-link disabled" href="#" aria-label="导出 JSON" aria-disabled="true">JSON</a>
           </div>
         </div>
-        <p class="board-footnote">横、竖、斜向连成六子即胜。朱色标记为最后一手。</p>
       </section>
       <aside class="side-stack">
         <section id="arena-panel" class="paper-section setup-section" aria-label="上传 AI 挑战官方版">
-          <div class="section-title"><h2>以棋会友</h2><span class="section-index">01</span></div>
-          <p class="section-intro">上传你的 AI，与官方版交手。</p>
-          <div class="limit-note"><span>每子 10 秒</span><span>单线程</span><span>Python / C++17</span></div>
+          <div class="limit-note">每子 10 秒 · 单线程</div>
+          <details id="upload-details" class="upload-details" open><summary>上传 AI</summary>
           <form id="upload-form" class="field-stack">
             <label for="ai-name">AI 名称</label>
-            <input id="ai-name" name="name" maxlength="40" placeholder="给你的棋手起个名字" />
-            <label for="ai-file">源码文件 <span class="label-note">.py / .cpp · 最大 512 KB</span></label>
+            <input id="ai-name" name="name" maxlength="40" placeholder="AI 名称" />
+            <label for="ai-file">源码 <span class="label-note">.py / .cpp · 512 KB</span></label>
             <input id="ai-file" name="file" type="file" accept=".py,.cpp" required />
-            <div class="upload-actions"><button id="upload-ai" class="secondary" type="submit">上传棋手</button><a href="/api/arena/example" class="text-link">下载示例 ↓</a></div>
+            <div class="upload-actions"><button id="upload-ai" class="secondary" type="submit">上传</button><a href="/api/arena/example" class="text-link">示例 ↓</a></div>
           </form>
           <p id="upload-message" class="upload-feedback" role="status" aria-live="polite"></p>
+          </details>
           <div class="challenge-controls field-stack">
-            <label for="submission">参赛棋手</label><select id="submission"><option value="">请先上传源码</option></select>
-            <label for="challenger-color">挑战方执子</label><select id="challenger-color"><option value="black">执黑 · 先手</option><option value="white">执白 · 后手</option></select>
-            <button id="start-match" class="primary" disabled>开始挑战 <span aria-hidden="true">↗</span></button>
+            <label for="submission">棋手</label><select id="submission"><option value="">请先上传 AI</option></select>
+            <label for="challenger-color">执子</label><select id="challenger-color"><option value="black">执黑 · 先手</option><option value="white">执白 · 后手</option></select>
+            <button id="start-match" class="primary" disabled>开始挑战</button>
           </div>
-          <details class="protocol-note"><summary>对战须知</summary>
-            <p>使用 arena.v1 输入输出协议，无需 API Key。每次返回一颗子；超时、崩溃或非法落子判负。</p>
+          <details class="protocol-note"><summary>接入说明</summary>
+            <p>arena.v1 协议，逐行读写 stdin / stdout，每次返回一颗子。超时、崩溃或非法落子判负。</p>
             <p id="arena-readiness">正在连接对战裁判…</p>
           </details>
         </section>
         <section id="practice-controls" class="paper-section setup-section" aria-label="人机练习设置" hidden>
-          <div class="section-title"><h2>与机手谈</h2><span class="section-index">01</span></div>
-          <p class="section-intro">选好先后手，静心下一局。</p>
           <fieldset class="side-choice">
-            <legend>本局执子</legend>
-            <label><input type="radio" name="human-color" value="black" checked /><span class="choice-content"><i class="choice-stone black"></i><strong>执黑</strong><small>先手 · 首回合一子</small></span></label>
-            <label><input type="radio" name="human-color" value="white" /><span class="choice-content"><i class="choice-stone white"></i><strong>执白</strong><small>后手 · AI 先落子</small></span></label>
+            <legend>执子</legend>
+            <label><input type="radio" name="human-color" value="black" checked /><span class="choice-content"><i class="choice-stone black"></i><strong>执黑</strong><small>先手</small></span></label>
+            <label><input type="radio" name="human-color" value="white" /><span class="choice-content"><i class="choice-stone white"></i><strong>执白</strong><small>后手</small></span></label>
           </fieldset>
           <div class="field-stack">
-            <label for="opponent">练习对手</label>
-            <select id="opponent"><option value="local">规则 AI · 离线可用</option><option value="model" disabled>大模型 AI · 需配置</option></select>
-            <button id="new-game" class="primary" disabled>开一局 <span aria-hidden="true">↗</span></button>
+            <div id="opponent-field" class="field-stack" hidden>
+              <label for="opponent">对手</label>
+              <select id="opponent"><option value="local">规则 AI</option><option value="model" disabled>外部模型</option></select>
+            </div>
+            <button id="new-game" class="primary" disabled>开一局</button>
           </div>
-          <p class="card-note setup-note">执子选择在开新局时生效。对局自动保存，可以随时回来继续。</p>
         </section>
         <section class="paper-section game-info">
-          <div class="section-title"><h2>局中记</h2><span id="opponent-label" class="small-tag">AI 挑战</span></div>
-          <dl><div><dt>棋局编号</dt><dd id="game-id">—</dd></div>
+          <p id="message" class="message" role="status" aria-live="polite"></p>
+          <button id="retry-ai" class="secondary" hidden>继续 AI 回合</button>
+          <details class="game-details"><summary>对局详情 <span id="opponent-label" class="small-tag">AI 挑战</span></summary>
+          <dl><div><dt>编号</dt><dd id="game-id">—</dd></div>
             <div><dt>当前行棋</dt><dd id="current-player">—</dd></div>
             <div><dt>还需落子</dt><dd id="remaining-stones">—</dd></div></dl>
-          <p id="message" class="message" role="status" aria-live="polite">正在初始化棋盘…</p>
-          <button id="retry-ai" class="secondary" hidden>继续 AI 回合</button>
           <div id="ai-decision" class="decision" hidden></div>
           <div id="move-times" class="move-times" hidden></div>
+          </details>
         </section>
         <section class="paper-section agent-section">
-          <div class="section-title"><h2>复盘札记</h2><span class="small-tag">Agent</span></div>
-          <p class="card-note">还原棋谱，找出漏防与关键落点。</p>
-          <button id="analyze-game" class="secondary full-width" disabled>分析当前棋局</button>
+          <div class="section-title"><h2>复盘</h2><button id="analyze-game" class="quiet" disabled>分析棋局</button></div>
           <div id="analysis" class="analysis" hidden></div>
         </section>
         <section class="paper-section history-section">
-          <div class="section-title"><h2><label for="history">旧局重拾</label></h2><span class="small-tag">最近 50 局</span></div>
-          <select id="history" aria-label="选择历史对局" disabled><option value="">正在读取…</option></select>
-          <p class="card-note setup-note">选一局，继续落子或回看棋谱。</p>
+          <div class="section-title"><h2><label for="history">历史</label></h2></div>
+          <select id="history" aria-label="选择历史对局" title="已结束的对局" disabled><option value="">读取中…</option></select>
         </section>
       </aside>
     </div>
-    <footer><span>墨弈 · 六子棋习作</span><span class="footer-center">落子有声，观棋不语。</span><a href="http://139.196.148.174/connect6" target="_blank" rel="noreferrer">六子棋规则 ↗</a></footer>
   </main>
   <script src="/static/app.js" defer></script>
 </body>
