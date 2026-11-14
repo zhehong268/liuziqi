@@ -6,7 +6,7 @@
 
 [在线练习](https://zhehong268.github.io/liuziqi/) · [下载 Windows 客户端](https://github.com/zhehong268/liuziqi/releases/latest)
 
-网页版直接打开就能下棋，支持先后手选择、复盘和 TXT / JSON 棋谱导出，记录保存在当前浏览器。上传 Python / C++ AI 对战请下载客户端，在自己的电脑上运行。
+网页版直接打开就能下棋，支持先后手选择、复盘和 TXT / JSON 棋谱导出，记录保存在当前浏览器。网页顶部的“下载安装包”可直接下载 Windows 安装程序；上传 Python / C++ AI 对战请安装客户端，在自己的电脑上运行。
 
 ![墨弈：水墨棋局与先后手选择](docs/images/arena.jpg)
 

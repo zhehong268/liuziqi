@@ -20,13 +20,17 @@ def build():
     assert html.count(needle) == 1
     html = html.replace(needle, '<script src="./engine.js" defer></script>\n  '
                         '<script src="./browser-api.js" defer></script>\n  ' + needle)
-    html = html.replace("</nav>", '<a class="client-download" href="https://github.com/zhehong268/liuziqi/releases/latest" '
-                        'target="_blank" rel="noopener">下载客户端</a></nav>', 1)
+    html = html.replace("</nav>", '<a class="client-download" href="./downloads/MoYi-Setup-Windows-x64.exe" '
+                        'download="墨弈-六子棋-Windows安装包.exe" title="Windows 10 / 11，64 位">下载安装包</a></nav>', 1)
     css = (OUTPUT / "styles.css").read_text(encoding="utf-8").replace("/static/", "./")
     css += '\nbody[data-edition="browser"] #mode-arena, body[data-edition="browser"] #arena-panel { display: none !important; }\n'
-    css += '.client-download { padding: 8px 12px; color: var(--muted); text-decoration: none; font: 15px var(--serif); }\n'
+    css += '.client-download { padding: 8px 12px; color: var(--paper); background: var(--ink); border: 1px solid var(--ink); text-decoration: none; white-space: nowrap; font: 15px/1.4 var(--serif); }\n'
+    css += '.client-download:hover { color: var(--paper); background: #504f4d; }\n'
+    css += '@media (max-width: 480px) { body[data-edition="browser"] .masthead { gap: 14px; } body[data-edition="browser"] .mode-tabs { gap: 12px; } .client-download { padding: 8px 10px; font-size: 13px; } }\n'
     (OUTPUT / "styles.css").write_text(css, encoding="utf-8")
-    for name in ("styles.css", "engine.js", "browser-api.js", "app.js"):
+    for name in ("styles.css", "engine.js", "browser-api.js", "app.js", "downloads/MoYi-Setup-Windows-x64.exe"):
+        if not (OUTPUT / name).is_file():
+            continue
         revision = hashlib.sha256((OUTPUT / name).read_bytes()).hexdigest()[:12]
         html = html.replace('="./' + name + '"', '="./' + name + '?v=' + revision + '"')
     (OUTPUT / "index.html").write_text(html, encoding="utf-8")

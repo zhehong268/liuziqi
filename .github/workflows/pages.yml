@@ -4,6 +4,9 @@ on:
     branches: [main]
     paths: ["static/**", "web/**", "scripts/build_pages.py", ".github/workflows/pages.yml"]
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Build Windows client"]
+    types: [completed]
 permissions:
   contents: read
   pages: write
@@ -13,6 +16,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   publish:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -23,6 +27,12 @@ jobs:
         with:
           node-version: "24"
       - run: node --test tests/browser.test.cjs
+      - name: Download Windows installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist/pages/downloads
+          gh release download --repo "$GITHUB_REPOSITORY" --pattern "MoYi-Setup-Windows-x64.exe" --dir dist/pages/downloads --clobber
       - run: python scripts/build_pages.py
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
